@@ -1,0 +1,8 @@
+# Dependencies — regenerable any time from package.json + package-lock.json
+node_modules/
+
+# Build output (none yet; here for when we add a build step)
+dist/
+
+# Test coverage reports
+coverage/

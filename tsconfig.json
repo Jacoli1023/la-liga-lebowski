@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    /* Type safety — the whole point of using TypeScript */
+    "strict": true,
+
+    /* Language level: modern JS, matches Node 24's capabilities */
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    /* Module system: real Node ESM. Relative imports end in .js; package imports stay bare. */
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+
+    /* Vitest transpiles each file in isolation; reject code that wouldn't survive that. */
+    "isolatedModules": true,
+
+    /* Clean interop when importing CommonJS-only packages. */
+    "esModuleInterop": true,
+
+    /* No build step yet: tsc is a type-checker only, it emits nothing. */
+    "noEmit": true,
+
+    /* Don't deep type-check dependencies' own .d.ts files. */
+    "skipLibCheck": true
+  },
+
+  /* Type-check everything under src/ (source + co-located *.test.ts). */
+  "include": ["src"]
+}

@@ -1,0 +1,228 @@
+Part 1: The Basics
+
+===============
+12 Teams
+Maximum Active Roster Size: 26
+Starting Lineups: 1 QB, 2 RB, 3 WR, 1 TE, 1 RB/WR Flex, 1 WR/TE Flex, 
+Season: 14 regular-season games, 3 playoff games, Week 18 doesn't count
+Schedule: Every team plays their divisional foes twice and three games against teams from the other division
+Playoffs: 6 teams make the playoffs, three from each of two divisions, with division champs getting byes
+Entry Fee: $100 (any discussion of dollars associated with player salaries or transactions is purely fictional money...$100 is your only fee)
+
+
+
+Part 2: Roster Moves
+=================
+* Active rosters can have no more than 26 players on them, though they can have fewer. The only obligation you have is to have enough players at each position to field a valid starting lineup.
+
+* Player acquisition revolves around a salary cap of $1,006. During the season, your team must always stay at or under this cap.
+
+* Free agents are acquired by blind bids, which take place in two periods per week during the season: the first starts at 1 p.m. ET Sunday and ends Wednesday at midnight ET, and the second starts at 12:01 a.m. ET Thursday and ends Saturday midnight ET. Money for your blind bids comes out of your remaining salary cap; the team awarded a given player has its bid subtracted from its cap. Ties for bids on the same player are broken by reverse order of standings. There's no limit to the number of free agents a single team may acquire in a single bidding period, as long as they stay under the cap.
+
+* Players may be dropped at any time, too, but your team remains responsible for the dropped player's hit against your salary cap this year. (In addition, if the player is signed for multiple seasons, there may be cap ramifications for the *next* season, too, but see Part 3 for more details about that.)
+
+* Trading is allowed year-round, except between the commencement of games in NFL Week 13 until the end of NFL Week 17. Trades can involve any number of players and/or Rookie Draft picks, provided both teams stay under the salary cap when it is necessary to do so.
+
+* Each team has 5 Injured Reserve spots. Up to five players who go on their real NFL team's IR list may be put on their fantasy team's IR. When this happens, only 50% of the player's salary counts against the salary cap. An IR player doesn't count against the 26-man roster limit.
+
+* Each team has 8 Practice Squad spots. Up to eight *rookies* (players eligible for that season's Draft) may be put on the Practice Squad by the commencement of Week 1's Sunday games (I'll send out a reminder about this). When this happens, only 25% of the player's salary counts against the salary cap. A PS player doesn't count against the 26-man roster limit. A PS player may be activated at any time during the season, at which point his salary counts 100% again. Once activated from the PS, a player can never go back to it. (Note that free agents acquired in season are NOT eligible for the Practice Squad, even if they're rookies.)
+
+* Anyone who is eligible to be placed on the Practice Squad can stay there for the entirety of his contract, provided he was never activated to the Active Roster. Anyone who stays on the Practice Squad from year to year *does* have his salary increase 20% on March 1, just like all other kept players.
+
+* Provided they have never been put on your Active Roster, you may drop players off your Practice Squad *without* any future salary cap hit, no matter how many years are on his contract. Yes, you still have the hit from *this* season (and that hit remains only 25% of the Practice Squad player's current salary), but if you drop a player who has three years left on his contract, and he's never been activated from your Practice Squad, you get *no* future hit.
+
+* Scoring:
+4 points per passing TD
+1 point per passing two-point conversion
+1 point per 25 passing yards
+-2 points per interception
+6 points per rushing or receiving TD
+2 points per rushing or receiving two-point conversion
+1 point per 10 rushing or receiving yards
+.5 points per reception
+-2 points per lost fumble
+ 
+
+* Playoff Seeding:
+In the first round (Week 14), the division champions get a bye. The #2 seed from the Fink plays the #3 seed from the Simple. The #2 seed from the Simple plays the #3 seed from the Fink.
+In the semifinals, we *re-seed*, so that the highest-seeded division winner plays the lowest-seeded Wild Card winner, and the lowest-seeded division winner plays the highest-seeded Wild Card winner.
+In the finals, obviously, the two semifinal winners play one another.
+NOTE: We will also have a "loser's bracket" tournament, so everyone gets to participate in the playoffs. The team from each division that misses the playoffs by the narrowest margins get Wild Card byes in that tournament.
+
+
+* Prizes (entry fee is $100 per team; only admin fee is league charges on MyFantasyLeague.com, ~$100):
+1st (super bowl champ)- 50% of prize pool
+2nd (super bowl runner-up)- 25%
+3rd (semifinal loser with better regular-season record)- 10%
+4th (semifinal loser with worse regular-season record)- 7%
+5th (wild card loser with better regular-season record)- 5%
+6th (wild card loser with worse regular-season record)- 3%
+
+
+
+
+Part 3: Keeper Rules, Contracts, Etc.
+=============================
+
+A. Contract Length
+
+* Any rookie selected in the Rookie Draft will have a 3-year contract, period. For every other player you draft, you will submit to me the contract's length, from between 1 and 5 years. It's entirely up to you, and there's no limit to how many contracts of whatever length you want.
+
+* Any player you assign a 1-year contract to cannot be re-signed -- any 1-year contract is essentially a "balance-of-this-season" contract. He will go back to the free agent pool next year. Also, any player acquired via blind bid during the season automatically has a 1-year contract, and will thus go back to the free agent pool next year. The only exception to this rule is if a player in his final contract year is elevated from the Practice Squad for the first time during that final season of his contract. In that case only, the player with 1 year left on his deal *may* sign an extension. Should you decline to activate and extend a Practice Squad player with one year remaining during the preseason, you still have the option of extending the player during his final season provided he has been promoted to your active roster.
+
+
+* Any player who has more than 1 year remaining on his contract may be given a contract extension of anywhere between 1 and 5 years. A player may only be extended once in the life of his current contract; if he's extended once and plays out the remainder of his new contract, he must return to free agency, and is not eligible for franchise or transition tagging. Any player who gets any length extension gets a 20% raise in the current season, which counts against this year's salary cap. In addition, the minimum salary for an extended player is $10, which means if you're extending a $1 player, his current salary automatically becomes $10.
+
+
+
+B. Keepers And Salary Increases
+
+* Any and all players may be kept from year to year, if they're eligible contract-wise (i.e., if they have another year beyond the season just played remaining on their contract).
+
+* The salary cap increases 5% from year to year.
+
+* All salaries of kept players increase 20% from year to year.
+
+* This is why you want to be relatively careful about assigning everyone a long-term deal. Salaries are compounded. So a player whose current salary is $40 sees that salary rise to $48 next year, $57.60 the year after that, $69.12 the year after that, etc.
+
+* You may drop players who are signed to long-term contracts, but you will suffer two consequences. First, as mentioned in Part 2, that player's current salary stays on your current salary cap books. Second, in the year *after* you drop the player, you suffer a "dead money," too, in accordance with this table:
+
+If there are:
+2 years remaining on the contract, 50% of its single-season value when you dropped him is deducted in the 2nd year
+3 years remaining on the contract, 75% of its single-season value when you dropped him is deducted in the 2nd year
+4 years remaining on the contract, 100% of its single-season value when you dropped him is deducted in the 2nd year
+5 years remaining on the contract, 125% of its single-season value when you dropped him is deducted in the 2nd year
+
+There are *no* ensuing cap hits in any years after the second one.
+
+
+C. Annual Rookie Draft
+
+* Around May 1, we'll have a rookie (non-snake) draft. The first six spots in the rookie draft are determined by a weighted lottery. 100 ping-pong balls (or, actually, printed and cut-out slips of paper) as follows:
+
++ team w/worst record = 30 ping-pong balls
++ second-worst record = 22
++ third-worst record = 18
++ fourth-worst record = 14
++ fifth-worst record = 10
++ sixth-worst record = 6
+(ties for which team's record is "worst" are resolved in the same manner as all other ties)
+
+The final six spots are determined by inverse order of the previous year's standings, except with the champion team picking last in the first round and the championship runner-up picking second to last. It will be 5 rounds.
+
+
+* We'll have our own Rookie Wage Scale, where a rookie's contract will be determined by his draft spot. This Rookie Wage Scale will increase by 20% every five years; the next increase will take place the year of the 2026 Rookie Draft. Until then, the Wage Scale is as follows:
+
+The first draft selection (1.01) will have a salary of $64.80.
+The next two selections (1.02, 1.03) in the draft will have rookie salaries of $53.28.
+The next three draft selections (1.04, 1.05, 1.06) will have a rookie salary of $43.20.
+The next three draft selections (1.07, 1.08, 1.09) will have a rookie salary of $37.44.
+The remaining first round selections (1.10, 1.11 and 1.12) will have salaries of $31.68.
+All second round selections will have salaries of $21.60.
+All third round selections will have salaries of $10.08.
+All fourth round selections will have salaries of $5.76.
+All fifth round selections will have salaries of $2.88.
+
+* All drafted rookie contracts are 3 years.
+
+* Within a week after the Rookie Draft, teams must get their rosters back down to the 26-man limit, by either releasing players or assigning rookies to the Practice Squad.
+
+
+D. Annual Free Agent Auction
+
+* Around August 1, we'll have an auction consisting of all Unrestricted Free Agents, i.e., players whose contracts ran out after the previous season and undrafted rookies.
+
+* Teams will be able to spend the difference between their total salaries for the approaching season and the league salary cap that season.
+
+* Nominating order in the auction will be the same as the first round order of the Rookie Draft.
+ 
+
+E. Player Holdouts
+
+* At the end of the Week 16, any player whose end-of-year stats as per the league web site place the player in the Top 5 fantasy QBs and TEs, Top 10 fantasy RBs, and Top 15 WRs is subject to examination as a possible holdout candidate. (I'll let all teams know after Week 16 who their holdouts are.)
+
+* If a Top 5 fantasy QB or TE, Top 10 fantasy RB or Top 15 WR is making less than one-half of the average salary of the relevant group in question (i.e., of the top 5 QBs or TEs, the top 10 RBs or the top 15 WRs), the player is considered a holdout. At this point, the owner has three options:
+
+        1. Accept new contract demands. This increases the player's salary to 75% of the average salary of the relevant group in question at his position. Contract years don't change...the player simply gets bumped to the higher level on March 1, in lieu of the standard 20% contract raise that all players get on March 1. (A team could conceivably sign the player to an extension at the same time provided the player is eligible, i.e., he hasn't already previous been signed to an extension.)
+
+        2. Release the player. Any salary cap hit that results from such a release takes place based on the *old* salary (i.e., not the new contract demands).
+
+        3. Reject new contract demands. If a team rejects the demands, it puts the player on the Practice Squad by March 1st (the only time an active player can be placed on the Practice Squad which, as you'll recall, is meant for rookies). The player's *old* salary accordingly counts 25% against the cap, but of course, the player cannot be in the team's starting lineup. Like all other members of the Practice Squad, this holdout player *can* be activated during the season, but in this case only if the team caves into the contract demands, and bumps up the salary. If the holdout player is traded, the acquiring team gets the same contract demands to deal with. If the holdout player stays on the Practice Squad for an entire season, one of two things happens:
+
+                 a. If the player finishes inside the relevant group at his position for a second straight year (i.e., top 5 QBs or TEs, top 10 RBs or top 15 WRs), he automatically must have his contract raised to 100% of the average salary of the relevant group at his position, or be released.
+
+                 b. If the player *doesn't* finish inside the relevant group at his position for a second straight year, he gives up his contract demands, and goes back to his old salary (and thus comes off the Practice Squad), though obviously, the team has missed a year of his service for fantasy usefulness (but the player does *not* lose a contract year for a season in which he holds out for the entire season).
+
+
+EXAMPLE: A RB whose salary is $10 finishes among the top 10 RBs for the season. The top 10 RBs earn an average of $100. Therefore (since $10 is less than one-half of $100) the player's holdout demands are to be paid 75% of that average, or $75. The contract length doesn't change. The team may accept the new salary of $75, release the player before March 1, or reject the contract demands and put the player on its Practice Squad. If the team chooses that third option, the player is unavailable and his salary only counts $2.50 against the cap. If he doesn't get activated all year, he either goes back to his $10 salary (if he doesn't repeat his top 10 performance among RBs) or get bumped to 100% of the new average of the top 10 RBs (if he does repeat his top 10 performance).
+
+
+F. Franchise Tags and Transition Tags
+
+ * Each winter (by March 1), a team may apply its Franchise Tag to a player who was under contract and in the final year of his deal in the season just passed. This signals to the league that an open bidding process will take place for this player. In order to bid for a Franchise Tagged player, a team must have a first-round pick in the upcoming Rookie Draft. The bidding will take place between March 1 and March 8, and the beginning bid amount will be whichever is highest: (a) the average of the current top five highest-paid players at the relevant position *after* salaries go up March 1, or (b) 120% of the player's current salary. The commissioner will manage this "slow" auction and come up with a high bidder on March 8. At that point, the player's original owner must decide whether to match the highest bid. The Franchise Tagged player then signs a contract with either the high bidder or the original owner who matched, with the length of contract to be determined by the high bidder or original owner (whoever winds up with the player). If the original owner doesn't match that team receives the high-bidding team's first-round Rookie Draft pick in that May's draft.
+
+* Each winter (by March 1), teams may apply its Transition Tag to a player who was under contract and in the final year of his deal in the season just passed. In this case, there's no bidding...the player signs a one-year deal at whichever is highest: (a) the average of the current top five highest-paid players at his position *after* salaries go up March 1, or (b) 120% of his current salary. After that contract expires, he's a free agent, and he cannot be signed to an extension during that final contract year.
+
+* A franchise may only use its Franchise Tag *or* its Transition Tag in any single offseason. It may not use one of each in the same offseason.
+
+ 
+
+G. Retirement
+
+* If a player retires while he's under contract to you, you may release him with no salary cap penalty in subsequent years, regardless of how many seasons he has left on his contract. And if he un-retires (hello, Brett Favre!), you still own him under the previous terms of his contract.
+
+
+Example: In 2010, Brett Favre is signed to a 5 year contract. In 2011 Brett Favre retires from the NFL. In 2013, Brett Favre returns to the NFL, therefore the team owner who signed him to a 5 year deal still retains the rights to the player who will be in the 4th year of his original 5 year contract.
+
+* However, a player must OFFICIALLY RETIRE with the league for this to be the case. Anyone who just "doesn't have a team" but who hasn't filed his retirement papers may not be released without the relevant salary cap penalty being assessed in the subsequent season.
+
+Example: You extend Frank Gore to a 5-year deal, but he only has three left on his San Francisco contract. After three years, Gore is unsigned and sits as an NFL free agent in the hopes of being picked up by an NFL team. You CAN'T release him without future salary cap penalty.
+
+
+H. League Calendar (dates are approximate)
+* March 1st:
+New fantasy season/year begins
+Player contracts are adjusted by -1 year. 0 year contracts at that point are dropped with those players becoming unrestricted free agents
+Salaries increase by 20%
+Salary Cap increases by 5%
+Players on Injured Reserve are moved back to their team's active roster
+Teams must be back under salary cap
+All Player Holdouts are resolved, either with new contracts, player release, or player deactivation to Practice Squad
+Owners must have declared all Franchise Players and Transition Players
+
+
+* March 1st - March 8th:
+Open bidding on Franchise players begins and ends.
+
+* March 8th:
+Franchise owners must declare their intention to match or accept franchise compensation
+
+* May 1st:
+NFL Draft
+
+* June 1st-ish:
+Rookie Draft
+
+* Aug 28th-ish:
+Unrestricted Free Agent Auction
+Free Agent Blind Bidding commences
+
+* Wednesday before Week 1:
+Contract Extensions window is closed for any player entering the season with only 1 year left on his contract
+
+* Commencement of NFL Week 12 games:
+Trading deadline
+Practice Squad activation deadline
+
+* Commencement of NFL Week 15 games:
+Playoffs Begin
+
+* NFL Week 17:
+Super Bowl
+Free Agent Waivers end
+
+* After NFL Week 17:
+Current fantasy season ends
+Trading recommences
+Practice Squad activation recommences
+Teams can exceed salary cap
