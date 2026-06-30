@@ -1,7 +1,15 @@
+import { Contract } from "./contract.js"
+
 export class Team {
-  constructor(private name: string) {}
+  constructor(private name: string, private contracts: Contract[] = []) {}
 
   calcCapUsed(): number {
-    return 0;
+    let sum: number = 0;
+
+    for(let contract of this.contracts) {
+      sum += contract.salaryCents;
+    }
+
+    return sum;
   }
 }
