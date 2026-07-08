@@ -15,11 +15,20 @@ This is primarily a **learning project**. The owner (Jacob) is using it to learn
 back-end fundamentals: data modeling, persistence, API design, and architecture.
 **Optimize for Jacob's understanding, not for shipping speed.**
 
-## Current state (2026-06-30)
-Pre-scaffold. No `package.json`, tooling, or commits yet; `src/{domain,cli,persistence}/`
-exist but are empty. Written so far: the ruleset (`docs/la-liga-rules.txt`) and the first
-spec (`specs/001-cap-calculation.md`). **Next step:** TDD spec 001 — `Team` cap
-calculation + cap-legality — against the in-memory domain core.
+## Current state (2026-07-08)
+Scaffolded and under TDD; committing to `main`. `package.json` + Vitest/TS toolchain are in
+place. **Spec 001 (cap calculation) — `calcCapUsed` is done:** the in-memory domain core
+computes status-weighted, floor-rounded committed cap. Shipped:
+- `src/domain/rules.ts` — `RosterStatus` string-literal union + `CAP_MULTIPLIER_PCT`
+  (ACTIVE 100 / IR 50 / PRACTICE_SQUAD 25, as integer percents).
+- `Contract.calcCapHit()` — `floor(salaryCents * pct / 100)`, integer math; `status`
+  defaults to ACTIVE.
+- `Team.calcCapUsed()` — sums each contract's `calcCapHit()`. 6 green tests (empty, ACTIVE,
+  IR, PS, mixed roster, floor-per-contract).
+
+**Next step:** spec 001's deferred **legality chunk** — decide where `isCapLegal` lives
+(Team / League / standalone), introduce `League` with `salaryCapCents`, then TDD the
+`committed cap ≤ league cap` invariant.
 
 ## Stack
 - TypeScript / Node.js
@@ -30,13 +39,12 @@ calculation + cap-legality — against the in-memory domain core.
   integration is a later, deliberate module — not an MVP dependency.
 
 ## Commands
-Tooling isn't scaffolded yet; chosen runner is **Vitest**. Once `package.json` exists, the
-intended commands are — **update this section with the real scripts the moment they land:**
-- `npm test` — run the suite once
+Vitest + `tsc`, wired in `package.json`:
+- `npm test` — run the suite once (`vitest run`)
 - `npm run test:watch` (or `npx vitest`) — watch mode = the red-green-refactor inner loop
 - `npx vitest run <file>` — a single test file
 - `npx vitest run -t "<name>"` — a single test by name
-- `npm run typecheck` — `tsc --noEmit`
+- `npm run typecheck` — type-check only, no emit (`tsc`, `noEmit` in tsconfig)
 
 ## Architecture — the core principle
 Strict separation, ports-and-adapters style:
