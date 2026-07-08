@@ -25,23 +25,34 @@ Done when:
 Iterate the team's contracts; for each, weight `salaryCents` by `multiplier(status)`;
 sum. Legality compares that sum to `league.salaryCapCents`.
 
-⟶ **YOU DECIDE:** Where does the multiplier table live? (A constant in `rules.ts`? A
-method? A standalone function?) Write one sentence justifying your choice.
+✓ **DECIDED:** The multiplier table is a `Record<RosterStatus, number>` constant in a new
+`src/domain/rules.ts`, stored as integer percents (100 / 50 / 25). `Contract.calcCapHit()`
+consults it and applies it to its own salary; `Team.calcCapUsed()` just sums
+`contract.calcCapHit()`. **Why:** a `Record` keyed by the full union is exhaustiveness-
+checked by `tsc` — adding a status without a multiplier fails to compile, enforcing the
+safeguard that no status silently contributes 0. Keeps the table data-directed (not
+subclassed) and configurable per-league later; Contract owns status→hit, Team owns the sum.
 
-⟶ **YOU DECIDE:** Where does the legality check live — on `Team`, on `League`, or as a
-standalone rule function? Why?
+⟶ **YOU DECIDE (next chunk):** Where does the legality check live — on `Team`, on
+`League`, or as a standalone rule function? Deferred until the multiplier lands green;
+decided at the top of that chunk, not now.
 
-## O — Operations (the interface — design it before coding)
-⟶ **YOU DECIDE** the signatures. Sketch them here first, e.g.:
-- `multiplier(status: RosterStatus): ???`
-- `Team.calcCapUsed(): number   // cents`
-- `isCapLegal(...): boolean      // method? free function?`
+## O — Operations (the interface)
+Locked for this chunk:
+- `CAP_MULTIPLIER_PCT: Record<RosterStatus, number>`  // integer percents, in `rules.ts`
+- `Contract.calcCapHit(): number`   // cents; `Math.floor(salaryCents * pct / 100)`
+- `Team.calcCapUsed(): number`      // cents; sum of contracts' `calcCapHit()`
+
+Next chunk (deferred):
+- `isCapLegal(...): boolean`         // location TBD — see the DECIDE note above
 
 ## N — Norms
 - Integer cents only.
 - The 50% / 25% multipliers will produce **fractions of a cent**.
-  ⟶ **YOU DECIDE** the rounding rule (round / floor / banker's), record it *here*, and
-  test it explicitly. This is a real decision, not a detail — pick deliberately.
+  ✓ **DECIDED — floor**, via integer-only math: `Math.floor(salaryCents * pct / 100)`
+  (multiply first, divide last — no float ever touches money). Half-cent cases truncate
+  down, so a discounted player counts at *no more* than his share. Pinned with an odd-cent
+  salary in the test plan below.
 - `RosterStatus` is a union. No magic strings.
 - Domain-pure: no console, no file, no DB.
 
