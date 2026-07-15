@@ -6,3 +6,7 @@ dist/
 
 # Test coverage reports
 coverage/
+
+# The local PGlite database (spec 002, decision 4). Regenerable: npm run sync:players.
+# Derived data, never source. Tests use an in-memory PGlite and never touch this.
+.data/
