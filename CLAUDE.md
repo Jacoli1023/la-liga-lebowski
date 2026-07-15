@@ -7,150 +7,210 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 A configurable NFL fantasy-football simulator implementing a custom league ruleset
 (salary cap, multi-year contracts, blind-bid free agency, keepers, holdouts,
-franchise/transition tags, season rollover). The MVP is a **terminal application**
-covering drafting, roster management, and player acquisition. It will eventually be
-used by a real friend group.
+franchise/transition tags, season rollover). It will eventually be used by a real
+friend group.
 
 This is primarily a **learning project**. The owner (Jacob) is using it to learn
 back-end fundamentals: data modeling, persistence, API design, and architecture.
 **Optimize for Jacob's understanding, not for shipping speed.**
 
-## Current state (2026-07-08)
-Scaffolded and under TDD; committing to `main`. `package.json` + Vitest/TS toolchain are in
-place. **Spec 001 (cap calculation) — `calcCapUsed` is done:** the in-memory domain core
-computes status-weighted, floor-rounded committed cap. Shipped:
-- `src/domain/rules.ts` — `RosterStatus` string-literal union + `CAP_MULTIPLIER_PCT`
-  (ACTIVE 100 / IR 50 / PRACTICE_SQUAD 25, as integer percents).
-- `Contract.calcCapHit()` — `floor(salaryCents * pct / 100)`, integer math; `status`
-  defaults to ACTIVE.
-- `Team.calcCapUsed()` — sums each contract's `calcCapHit()`. 6 green tests (empty, ACTIVE,
-  IR, PS, mixed roster, floor-per-contract).
+---
 
-**Next step:** spec 001's deferred **legality chunk** — decide where `isCapLegal` lives
-(Team / League / standalone), introduce `League` with `salaryCapCents`, then TDD the
-`committed cap ≤ league cap` invariant.
+## ⚠️ Read this first: Jacob's experience level
+
+Jacob is **solid on TypeScript fundamentals and domain modeling.** He is **new to
+databases and HTTP.** He has barely touched SQL, ORMs, migrations, or web servers.
+Drizzle, PGlite, Hono, and Zod are all foreign to him.
+
+**This means you are doing significant teaching, not just coding.** Concretely:
+
+- **Never introduce a term without defining it.** Migration, upsert, transaction,
+  foreign key, index, connection, middleware, status code, idempotency, serialization
+  — assume none of these are load-bearing knowledge yet.
+- **Show the SQL.** When you write a Drizzle query, show the SQL it generates and
+  walk through it. Drizzle was chosen *specifically* so Jacob learns SQL. Do not let
+  the ORM hide it from him.
+- **Explain HTTP semantics as they come up.** Why `POST` and not `GET`. Why `422` and
+  not `400`. Why `PATCH` and not `PUT`. What "idempotent" means and why the sync
+  script is and the bid endpoint isn't.
+- **When something errors, teach the error.** A constraint violation, a connection
+  failure, a type mismatch at the DB boundary — these are lessons, not obstacles.
+  Explain what the DB is actually complaining about before fixing it.
+- **Rationale before code, always.** He wants *why*. If he can't explain the diff back
+  to you, you went too fast — stop and explain.
+- **Prefer the boring, explicit version.** Clever abstractions cost him understanding.
+  A verbose query he can read beats a terse one he can't.
+
+He is *not* a beginner programmer. Don't condescend. Explain the unfamiliar layer,
+assume competence everywhere else.
+
+---
+
+## Current state (2026-07-15)
+**Vertical slices. Slice 0 (spec 002): decisions locked, implementation not started.**
+
+Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
+`Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
+survives** — it becomes the pure functional core. It was built with no consumer, which
+is exactly the trap the pivot is correcting.
+
+**Slice 0 — the walking skeleton.** Sleeper API → Zod → Drizzle → PGlite → `GET /players`.
+The stack is installed. All seven decisions are locked in `specs/002-player-sync.md`,
+each with its rationale *and its cost* — **read that spec before touching slice 0 code.**
+
+The headline decision: the sync mirrors only the **~4,030 QB/RB/WR/TE rows** of Sleeper's
+12,200, because `docs/la-liga-rules.txt:6` makes La Liga offense-only. That is what lets
+the Zod schema be strict — the payload's nullability chaos lives almost entirely in rows
+this league can never roster. It also forces the pipeline order: **filter, then validate.**
+
+**Build order — data-flow, one new layer per step. Currently: step 1.**
+1. `POSITIONS` / `Position` / `isLeaguePosition` in `rules.ts` — pure, no new tools ← *here*
+2. `src/db/schema.ts` + first migration — read the generated SQL out loud
+3. Zod schema + mapper — the anti-corruption boundary; **Jacob writes these tests**
+4. `scripts/sync-players.ts` — upsert, idempotency
+5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it
+
+Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
+demoable until step 5, and that cost is accepted because the goal is understanding each
+layer, not shipping speed. Revisit for slice 1, once the layers are familiar.
 
 ## Stack
-- TypeScript / Node.js
-- Tests: **Vitest** (confirmed on init), red-green-refactor.
-- Persistence: start **in-memory**, then SQLite, then Postgres. Deliberate layers —
-  do not jump ahead to a database before the in-memory core is solid.
-- **No external APIs in the MVP.** The player pool is static seed data. Real NFL stat
-  integration is a later, deliberate module — not an MVP dependency.
+- **TypeScript / Node.js**
+- **PGlite** — real Postgres compiled to WASM, running in-process. No Docker, no
+  server, no connection string. Real Postgres semantics (not SQLite pretending).
+  Swap the driver for real Postgres later; schema and queries don't change.
+- **Drizzle** — SQL-first ORM. Schema is TypeScript. No DSL, no codegen step.
+  Chosen so Jacob learns SQL, not an ORM's query DSL.
+- **Hono** — web-standards HTTP framework. TypeScript-first, `zValidator` middleware.
+- **Zod** — runtime validation at every external boundary.
+- **Vitest** — red-green-refactor.
+
+**This stack is locked.** No further tool debates until slice 2 ships. Jacob's known
+trap is over-structuring; tool-shopping is that trap in disguise.
 
 ## Commands
-Vitest + `tsc`, wired in `package.json`:
-- `npm test` — run the suite once (`vitest run`)
-- `npm run test:watch` (or `npx vitest`) — watch mode = the red-green-refactor inner loop
-- `npx vitest run <file>` — a single test file
-- `npx vitest run -t "<name>"` — a single test by name
-- `npm run typecheck` — type-check only, no emit (`tsc`, `noEmit` in tsconfig)
+- `npm test` / `npm run test:watch` — Vitest
+- `npm run typecheck` — `tsc --noEmit`
+- (to be added in slice 0) `npm run sync:players` — pull the Sleeper player pool
+- (to be added in slice 0) `npm run dev` — start the Hono server
 
-## Architecture — the core principle
-Strict separation, ports-and-adapters style:
-- `src/domain/` — the pure domain core: entities + rules. **No I/O. No framework.
-  No DB. No console.** Must be unit-testable in complete isolation.
-- `src/cli/` — the terminal adapter (one way to drive the core).
-- `src/persistence/` — the storage adapter.
+---
 
-The terminal is just one adapter over the core. The core must not know what is
-driving it. New interfaces or storage layers are added as new adapters **without
-modifying the core.**
+## Architecture — functional core, imperative shell
 
-## Domain model (current — designed by Jacob)
-```mermaid
-classDiagram
-    League "1" *-- "12" Team : contains
-    Team "1" --> "*" Contract : owns
-    Contract "1" --> "1" Player : covers
-    class League {
-        +int salaryCapCents
-        +int capGrowthPct
-        +advanceSeason()
-    }
-    class Team {
-        +string name
-        +int numWins
-        +int numLosses
-        +Contract[] contracts
-        +acquirePlayer(player, bidCents)
-        +dropPlayer(contract)
-        +movePlayer(contract, newStatus)
-        +calcCapUsed() int
-        +activeRoster() Contract[]
-    }
-    class Contract {
-        +RosterStatus status
-        +int fullContractLength
-        +int contractYearsRemaining
-        +bool hasExtended
-        +int salaryCents
-        +calcCapHit() int
-    }
-    class Player {
-        +string name
-        +Position position
-        +string nflTeam
-        +bool irEligible
-        +bool isRookie
-    }
+The old `CLAUDE.md` said "domain has no I/O, ever." That was a good instinct applied
+too rigidly, and it produced beautiful code that couldn't leave memory. The revision:
+
+- **Functional core (pure, no I/O):** all *calculations* and *rules*. `calcCapHit`,
+  `calcCapUsed`, dead-money tables, holdout thresholds, salary escalation, legality
+  checks. Plain functions over plain data. Trivially unit-testable. **This is where
+  the interesting part of the project lives.**
+- **Imperative shell (I/O at the edges):** entity classes and repositories may load and
+  save. Route handlers orchestrate. The Sleeper sync script fetches.
+
+**Rule: no rule ever gets computed inside a route handler or a query.** The handler
+loads, calls the core, and serializes. If cap math appears in a Hono handler, that's a
+bug.
+
+### The four shapes (memorize this)
+
 ```
-- **League** owns 12 **Teams** and holds league-wide rules (cap in cents, 5% annual
-  cap growth, `advanceSeason()` = the ordered March-1 rollover cascade).
-- **Team** owns many **Contracts**. A team's roster is **not stored** — it is a
-  *query* over its contracts by status.
-- **Contract** is the team↔player relationship: status, salary (cents), term, years
-  remaining, `hasExtended`. It carries the status; the Player does not.
-- **Player** is the global NFL human — exists with or without a contract (free agents
-  have none). Holds real-world facts only. `irEligible` names the *concept* of IR
-  eligibility (configurable per league), not a fixed mechanism.
+Sleeper JSON  →[validate + map]→  players table  →[load]→  Domain objects  →[serialize]→  API JSON
+  theirs                            your mirror              your rules                    your contract
+```
 
-### RosterStatus → cap multiplier (data-directed; NOT subclasses)
-| Status         | Cap multiplier | Counts vs 26-man? | Capacity | Eligibility    |
-| -------------- | -------------- | ----------------- | -------- | -------------- |
-| ACTIVE         | 100%           | yes               | —        | —              |
-| IR             | 50%            | no                | 5        | irEligible     |
-| PRACTICE_SQUAD | 25%            | no                | 8        | isRookie       |
-| (DROPPED)      | coming — deferred                                          |
+Four distinct shapes. Three translations, each of which is **code you own and control.**
 
-## Hard conventions (invariants & idioms)
-- **Money is always integer cents.** Never floats for money.
-- **Derive, don't store.** Cap used, current roster, counts → computed from contracts
-  on demand. Do **not** cache without a *measured* need and an invalidation strategy.
-- **Fixed-value fields are unions** (Position, RosterStatus) — never magic strings.
-- **Status is data, not type.** Anything that changes which "bucket" it's in is a
-  status field, never a subclass.
-- **Central invariant:** committed cap ≤ league cap, *always*, after every
-  transaction. Rules are validated at the moment of mutation by querying current state.
-- **Single source of truth.** Never add a second way to answer the same question
-  (e.g. a cached roster array alongside the contracts).
+- Sleeper's nullability, field names, and IDs **stop at the mirror table.**
+- The DB's column names **stop at `serialize()`.** Never return raw DB rows from a route.
+- If Sleeper renames a field, exactly one mapper file breaks — not the domain.
+
+### Where invariants live
+| Kind of rule | Enforced by |
+| --- | --- |
+| Uniqueness, foreign keys, NOT NULL, CHECK | **Postgres.** Declarative, atomic, race-proof. |
+| Aggregate rules (committed cap ≤ league cap) | **Your code, inside a transaction.** No column constraint can express a SUM across rows. |
+
+Knowing which is which is the core skill of this phase. Teach it explicitly.
+
+---
+
+## Slice roadmap
+Each slice is **narrow in scope, complete in depth**, and demoable with `curl`.
+If you can't demo it, it isn't a slice.
+
+- **Slice 0 — player sync (spec 002).** Sleeper → Zod → Drizzle → PGlite →
+  `GET /players`. Only the `players` table. Nothing else. ← *current*
+- **Slice 1 — read the cap.** Introduce `leagues`, `teams`, `contracts`.
+  `GET /teams/:id/cap` → `{ capUsed, capTotal, capSpace, isCapLegal }`. Spec 001's
+  pure core finally gets a caller.
+- **Slice 2 — first mutation.** `POST /teams/:id/contracts` (sign a free agent at a
+  bid). Reject with `422` if it breaks the cap. **The transaction boundary appears here.**
+- **Slice 3 — move a player.** `PATCH /contracts/:id` → IR / practice squad. Capacity
+  limits (5 IR, 8 PS), eligibility, the 26-man ceiling.
+- **Slice 4 — drop a player.** `DROPPED` status, dead-money table.
+
+**Do not add a table, a column, or an endpoint until the slice needs it.**
+
+---
+
+## Hard conventions
+- **Money is always integer cents.** Never floats.
+- **`as` is not validation.** A type assertion is a lie to the compiler with zero
+  runtime enforcement. Every external boundary (Sleeper, request bodies, query params)
+  gets a Zod schema. No exceptions.
+- **Derive, don't store.** A team's roster is a *query over contracts by status*, never
+  a stored array. Cap used is computed, never cached.
+- **Fixed-value fields are unions** (`Position`, `RosterStatus`) — never magic strings.
+- **`isRosterable` is reserved** for real roster-eligibility logic — is he on another
+  roster? is there a spot? the 26-man ceiling? IR/PS eligibility? That needs `Team` state
+  and belongs to slices 2–3. It is **not** a position filter. "Is this a position La Liga
+  uses?" is `isLeaguePosition`, over the `Position` union. Don't let a sync-time filter
+  squat on a domain name.
+- **Status is data, not type.** Never subclass to represent a bucket a thing moves between.
+- **The sync is idempotent.** Upsert on a stable external key. Partial failure is fixed
+  by rerunning, not by rolling back.
+- **Single source of truth.** Never add a second way to answer the same question.
+
+## Known landmines (from the reference demo — do NOT copy these)
+The `jdraft` demo is a *shape* to learn from, not code to fork. Three things in it are
+actively wrong for La Liga:
+
+1. **`@@unique([teamId, playerId])`** — blocks drop-then-reacquire, which our rules
+   allow (a `DROPPED` contract carrying dead money + a new live contract, same player,
+   same team). Needs to be a **partial** unique index (`WHERE status <> 'DROPPED'`) or
+   season-scoped.
+2. **`onDelete: Cascade` on the Player relation** — a Sleeper sync deleting a player
+   would silently wipe league contracts. Use **`RESTRICT`**. A third-party feed must
+   never destroy league history.
+3. **`as Record<string, SleeperPlayer>`** — see the `as` rule above. Zod it.
+
+---
 
 ## How to work with Jacob
-Jacob stays the architect. You are a **spotter and tutor, not an autocomplete.**
-- **Explain before implementing.** Rationale first, code second. He wants *why*.
-- **Architecture-critical code** (domain API shape, module boundaries, data models,
-  cap logic): propose options + tradeoffs, let Jacob decide. **Jacob writes these
-  tests himself — do not write them for him.**
-- **Rules-dictated logic** (cap math values, dead-money tables, scoring, holdout
-  thresholds — behavior fully pinned by the ruleset): you may generate tests *from
-  the ruleset*, and Jacob implements to green.
-- **Small, reviewable chunks.** Don't advance until Jacob can explain the diff. If he
-  can't, slow down and explain.
-- **Don't over-engineer or build ahead.** His known trap is over-structuring — help
-  him resist it. Park deferred items until their turn.
+Jacob stays the architect. You are a **tutor and spotter, not an autocomplete.**
+- **Explain before implementing.** (See the experience-level section — this is now the
+  most important line in this file.)
+- **Architecture-critical code** (schema design, module boundaries, domain API shape,
+  cap logic): propose options + tradeoffs, let Jacob decide. **Jacob writes these tests
+  himself.**
+- **Rules-dictated logic** (cap multipliers, dead-money table, scoring, holdout
+  thresholds — fully pinned by the ruleset): you may generate tests *from the ruleset*,
+  and Jacob implements to green.
+- **Small, reviewable chunks.** Don't advance until he can explain the diff.
+- **Don't build ahead of the spec.** Park deferred items until their turn.
 - When behavior is wrong, fix the spec first, then the code.
 
 ## Methodology
-- **Outer loop:** a short spec per feature in `/specs` (REASONS-canvas style, by hand,
-  no heavy tooling), written and owned by Jacob.
-- **Inner loop:** TDD on the domain core. Red → green → refactor.
+- **Outer loop:** one short spec per *slice* in `/specs` (REASONS-canvas style, by hand),
+  written and owned by Jacob.
+- **Inner loop:** TDD on the functional core. Red → green → refactor.
 
 ## Deferred — do not build yet
-Dead-money on dropped players (DROPPED status, and drop-then-reacquire → one Player
-with two Contracts), holdout resolution, franchise/transition tags, the full
-season-rollover cascade ordering, persistence beyond in-memory, any UI/client, real
-NFL data integration, lineup-setting with slot eligibility.
+Everything not in the current slice. Specifically: holdout resolution, franchise/
+transition tags, the March-1 rollover cascade, trades, blind-bid periods, scoring,
+lineup slot eligibility, any UI, real Postgres, auth.
 
 ## The ruleset
 The authoritative custom rules live in `docs/la-liga-rules.txt`. When implementing any
-rule, **read it there** — do not infer from memory.
+rule, **read it there** — never infer from memory.
