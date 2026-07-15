@@ -1,3 +1,9 @@
+export const POSITIONS = ["QB", "RB", "WR", "TE"] as const;
+export type Position = (typeof POSITIONS)[number];
+export function isLeaguePosition(value: string | null | undefined): value is Position {
+  return POSITIONS.some((position) => position === value);
+}
+
 export const RosterStatus = {
   ACTIVE: "ACTIVE",
   IR: "IR",
