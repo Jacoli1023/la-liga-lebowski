@@ -46,8 +46,9 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-07-15)
-**Vertical slices. Slice 0 (spec 002): decisions locked, implementation not started.**
+## Current state (2026-07-16)
+**Vertical slices. Slice 0 (spec 002): implementation underway — build steps 1–2 done,
+step 3 (the mapper) parked mid-flight as a red TDD bar, with one open decision to settle.**
 
 Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
 `Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
@@ -63,12 +64,24 @@ The headline decision: the sync mirrors only the **~4,030 QB/RB/WR/TE rows** of 
 the Zod schema be strict — the payload's nullability chaos lives almost entirely in rows
 this league can never roster. It also forces the pipeline order: **filter, then validate.**
 
-**Build order — data-flow, one new layer per step. Currently: step 1.**
-1. `POSITIONS` / `Position` / `isLeaguePosition` in `rules.ts` — pure, no new tools ← *here*
-2. `src/db/schema.ts` + first migration — read the generated SQL out loud
-3. Zod schema + mapper — the anti-corruption boundary; **Jacob writes these tests**
+**Build order — data-flow, one new layer per step. Currently: step 3.**
+1. ✅ `POSITIONS` / `Position` / `isLeaguePosition` in `rules.ts` — pure, no new tools
+2. ✅ `src/db/schema.ts` + migration `0000_create_players` (the `CHECK` on `position` is
+   generated from `POSITIONS`). `src/db/client.ts` — `createDb(path?)` factory applies it
+   (PGlite + Drizzle + `migrate`); one factory, two callers (disk vs in-memory).
+3. Zod schema + mapper — the anti-corruption boundary; **Jacob writes these tests** ← *here*
+   - `src/sync/sleeper.ts`: strict `sleeperPlayerSchema` (drafted) + `mapSleeperPlayer`
+     (throwing stub — TDD red). Fixtures + failing test scaffold live in `src/sync/`.
+   - Remaining: implement the mapper to green, write the field assertions, convert the
+     three `it.todo` schema tests.
 4. `scripts/sync-players.ts` — upsert, idempotency
 5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it
+
+**⟶ OPEN DECISION (resume here next session): `mapSleeperPlayer` timestamp sourcing.**
+`syncedAt` is currently injected as a parameter *provisionally* — a pure mapper,
+deterministic tests, one timestamp per sync run. The alternative is sourcing `new Date()`
+inside the mapper (simpler, impure, tests can only assert "is a Date"). **Not yet decided.**
+Jacob decides on return, then records it in `specs/002-player-sync.md` and implements.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each
@@ -91,6 +104,7 @@ trap is over-structuring; tool-shopping is that trap in disguise.
 ## Commands
 - `npm test` / `npm run test:watch` — Vitest
 - `npm run typecheck` — `tsc --noEmit`
+- `npm run db:generate` — generate a Drizzle migration by diffing `schema.ts`
 - (to be added in slice 0) `npm run sync:players` — pull the Sleeper player pool
 - (to be added in slice 0) `npm run dev` — start the Hono server
 
