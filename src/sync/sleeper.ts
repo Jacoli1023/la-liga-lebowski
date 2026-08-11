@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { POSITIONS, isLeaguePosition } from "../domain/rules.js";
-import { players } from "../db/schema.js";
+import type { NewPlayer } from "../db/schema.js";
 
 /**
  * The strict validation boundary for ONE Sleeper player.
@@ -30,9 +30,6 @@ export const sleeperPlayerSchema = z.object({
 
 /** The shape of a validated Sleeper player, inferred from the schema above. */
 export type SleeperPlayer = z.infer<typeof sleeperPlayerSchema>;
-
-/** The row shape Drizzle expects for an INSERT into `players`. */
-type NewPlayer = typeof players.$inferInsert;
 
 /**
  * The anti-corruption mapper: a validated Sleeper player -> a `players` row.

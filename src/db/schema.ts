@@ -38,3 +38,13 @@ export const players = pgTable(
   ],
 );
 
+/**
+ * The row shape an INSERT into `players` expects - derived from the table above,
+ * never hand-written. `id` and the other DEFAULT-ed columns are optional here
+ * because Postgres fills them in.
+ *
+ * Lives in schema.ts because it is a fact about the TABLE, and both the mapper
+ * (which produces these) and the repository (which writes them) need it.
+ */
+export type NewPlayer = typeof players.$inferInsert;
+
