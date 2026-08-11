@@ -1,12 +1,12 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (build steps 1–3 of 5 done, 2026-08-11).** All decisions are
-locked — the original seven (2026-07-15) plus decision 5, which surfaced during
-implementation and was settled 2026-07-22. Each is recorded inline below with its
-rationale *and its cost*. The ⟶ **YOU DECIDE** blocks are kept rather than deleted: the
-question is the context for the answer, and a decision without its alternatives is just
-a rule. Next: **step 4, `scripts/sync-players.ts`** — see the test plan at the bottom for
-what is still red.
+**Status:** **In progress (2026-08-11)** — steps 1–3 done, step 4's *pure half* done
+(`mapSleeperPayload`, 30 tests green). Nothing touches the database or the network yet.
+The original seven decisions (2026-07-15) are locked, plus decision 5 (settled
+2026-07-22). **Decision 6 — the zero-row policy — is OPEN and is where to resume.**
+Each is recorded inline below with its rationale *and its cost*. The ⟶ **YOU DECIDE**
+blocks are kept rather than deleted: the question is the context for the answer, and a
+decision without its alternatives is just a rule.
 **Why this is the slice:** it is the thinnest thing that touches *every layer* — an
 external API, validation, a mapper, a schema, a migration, a database, and an HTTP
 route. It is deliberately boring. Its job is to prove the wires connect, and to put
@@ -74,7 +74,7 @@ PS-eligible. That is `Team`-state domain logic and it belongs to slices 2–3. A
 position filter must not squat on it.
 
 `POSITIONS` is the single source of truth. Three things **derive** from it, none of them
-a copy: the Zod enum (`z.enum(POSITIONS)`), the sync's triage filter, and the `CHECK`
+a copy: the Zod enum (`z.enum(POSITIONS)`), the sync's filter, and the `CHECK`
 constraint (`schema.ts` imports it). The import direction is correct — shell depends on
 core, never the reverse.
 
@@ -83,8 +83,9 @@ core, never the reverse.
 Mirroring everything would mean rejecting `?position=LB` while 1,162 linebackers sat
 in the table — filter and contract disagreeing.
 
-*What it costs:* if the league ever adds K or DEF, change `isRosterable` and re-sync.
-The sync runs daily anyway, so the cost of reversing this is one day.
+*What it costs:* if the league ever adds K or DEF, change `POSITIONS`, generate a
+migration (the `CHECK` is frozen SQL — see decision 2), and re-sync. The sync runs daily
+anyway, so the cost of reversing this is one day.
 
 ## A — Approach
 
@@ -173,13 +174,14 @@ of who is writing** — a buggy mapper, a future seed script, a test fixture, or
 in `psql`. Zod only protects the sync path. This is CLAUDE.md's "declarative, atomic,
 race-proof" line, and it is the DB's job.
 
-*Why it does not violate single-source-of-truth:* because `isRosterable` no longer holds
-the position list — `POSITIONS` does, and the `CHECK` is generated from it. The three
-guards do different jobs at different layers:
+*Why it does not violate single-source-of-truth:* because no function holds the position
+list — `POSITIONS` does, and the `CHECK` is generated from it. (An earlier draft had the
+list living inside the filter function, under the since-rejected name `isRosterable`.)
+The three guards do different jobs at different layers:
 
 | where | job | on `"LB"` |
 | --- | --- | --- |
-| triage filter | routing | skips silently, by design (8,170×) |
+| the sync's filter | routing | skips silently, by design (8,170×) |
 | Zod enum | validation | aborts with a readable error naming the field |
 | `CHECK` | storage | rejects the write, whoever is writing |
 
@@ -223,9 +225,15 @@ skip.
 because the filter runs **before** validation:
 
 ```
-fetch → triage (has a position?) → isRosterable(position)? → STRICT Zod → map → upsert
-                                        └─ no → skip, silently, by design
+fetch → isLeaguePosition(raw.position)? → STRICT Zod → map → upsert
+             └─ no → skip, silently, by design
 ```
+
+*(An earlier draft of this diagram showed two steps — "has a position?" then the position
+check — and called the second one `isRosterable`. Both were wrong. The name is
+`isLeaguePosition`, and the separate null-check is dead: `isLeaguePosition` takes
+`string | null | undefined` and returns `false` for all three, which `rules.test.ts` pins
+explicitly. One guard, not two.)*
 
 Validating first would mean parsing all 12,200 rows, which requires a loose schema —
 throwing away decision 0's entire benefit. So the order is not a style preference; it
@@ -233,7 +241,7 @@ is *implied* by the two decisions above. We only ever validate rows we intend to
 which means a malformed team defense can never abort the sync, and a malformed *running
 back* always will. That is exactly the blast radius we want.
 
-The triage step reads `position` off not-yet-validated JSON, which is the one place this
+The filter reads `position` off not-yet-validated JSON, which is the one place this
 is legitimate: it is a routing decision, not a trust decision. Nothing downstream sees
 the row until the strict schema has passed. Skipping a non-skill row is **not** an error
 and is not logged as one — it is the filter doing its job 8,170 times.
@@ -294,6 +302,52 @@ already holds the timestamp.
 *Rejected — default parameter (`syncedAt: Date = new Date()`):* pure when passed, convenient
 when not, but it **hides** the I/O edge; a caller who forgets the argument silently gets
 impurity. For a learning slice the explicit boundary teaches more than the convenience saves.
+
+⟶ **YOU DECIDE (6) — the zero-row policy.** *(Surfaced during implementation of the pure
+pipeline, 2026-08-11. Not in the original draft.)* **Not yet decided — resume here.**
+
+Decision 3 settled what happens when a *row* is bad: abort. It says nothing about a bad
+*response*. A sync can end up writing **zero rows** by two completely different routes,
+and they call for opposite responses:
+
+| what happened | payload entries | rows out | whose problem |
+| --- | --- | --- | --- |
+| normal day | 12,200 | ~4,030 | none |
+| empty / failed / wrong-URL response | 0 | 0 | **theirs** — re-run later |
+| Sleeper renamed positions, or changed `position`'s type | 12,200 | 0 | **ours** — the filter is stale, code must change |
+| truncated or partial response | ~2,000 | ~700 | **theirs** — re-run |
+
+Row 3 is the dangerous one: fetch succeeded, JSON parsed, envelope validated, every row
+politely skipped, nothing written, exit `0`. **A failure that looks like success.** And a
+check on `rows.length` alone cannot tell row 2 from row 3 — the remedies are opposites.
+
+- **(A) Zero is fatal, checked in two places.** Abort if the payload has no entries; abort
+  separately if entries exist but no rows survived, with a message naming which. No magic
+  numbers. Misses row 4 entirely.
+- **(B) A, plus a minimum-row floor** (say 3,000). Also catches the truncated payload.
+  Costs an arbitrary constant nobody can defend, which then rots.
+- **(C) No check.** Print the counts and let a human notice. Defensible while the sync is
+  run by hand and its output is read.
+
+*Claude recommends **A***: zero is the only threshold that isn't a guess — any positive
+floor is either too low to catch anything or too high and breaks on a slow day. The value
+is the two-message split, which turns "produced nothing" into a diagnosis. The honest
+version of the row-4 check is **relative** ("the table holds 4,030 and today's run yielded
+700"), which needs the database and belongs to a later slice, once the sync is scheduled
+and nobody is watching it run.
+
+**Consequences to settle alongside it:**
+- `fetchPlayerPool()` likely returns the *validated envelope*
+  (`Promise<Record<string, unknown>>`) rather than raw `unknown`, so the script can count
+  entries without parsing the payload a second time. Values stay `unknown` — trust still
+  starts at the strict schema.
+- The sync must be **importable without running**: an exported `syncPlayers(...)` plus a
+  thin entry point. A script that works at import time cannot be tested, and importing it
+  would fetch 14.6MB.
+- The fetch needs to be swappable. **This is the slice's one honest test double**, and it
+  earns its place by provoking failures the real API cannot be asked for (a 500, an empty
+  pool) — not by "isolating units." Note what is *not* mocked: the database. In-memory
+  PGlite is real Postgres, injected, so constraint violations are real.
 
 ## O — Operations (the interface)
 ```
@@ -358,6 +412,19 @@ describe block that covers each is named so a future reader can find it.*
       — `missingLastName` via `.safeParse(...).success === false`
 - [x] Zod: unknown extra fields (`hashtag`, `search_rank`) are **dropped**, not a crash
       *(not in the original plan; it is the Safeguards bullet, so it earned a test)*
+
+Added 2026-08-11 by the pure pipeline (`mapSleeperPayload`), all green:
+- [x] Pipeline: a malformed player who **passes** the position filter aborts, and the
+      message names his `player_id` — the abort is useless against 4,030 rows otherwise
+- [x] Pipeline: every row from one call shares the **same `Date` instance** (`toBe`, not
+      `toEqual` — identity proves pass-through; a defensive `new Date(syncedAt)` copy
+      would satisfy `toEqual` and is exactly what this must catch)
+- [x] Pipeline: an empty payload → `[]`, **not** an error. Whether the *sync* tolerates
+      that is decision 6, below — a pure transform has no business deciding it
+- [ ] Envelope: a payload that is not an object (`[]`, `null`, `"oops"`, `42`) → rejected.
+      **The behavior is already correct** — `z.record` accepts only plain objects, checked
+      by hand 2026-08-11 — but nothing pins it, so a later loosening of the envelope would
+      pass silently. One `toThrow` test, worth writing next session
 - [ ] Sync: run twice → same row count, same data (idempotency) — **step 4**
 - [ ] `GET /players` with no filters → returns rows — **step 5**
 - [ ] `GET /players?position=ZZ` → **`400`** (decided above) — **step 5**
@@ -366,10 +433,16 @@ Added by decision 0 — the filter is now a tested seam, not an implementation d
 - [x] `isLeaguePosition`: `QB`/`RB`/`WR`/`TE` → true; `K`/`DEF`/`LB`/`OL` → false
       — `src/domain/rules.test.ts` (14 cases, incl. `''` and lowercase `'qb'`)
 - [x] `isLeaguePosition`: `null` position → false (240 such rows exist)
-- [ ] Filter: a team defense (`player_id: "HOU"`, no `full_name`) → skipped, **not** an
+- [x] Filter: a team defense (`player_id: "HOU"`, no `full_name`) → skipped, **not** an
       abort. This is the test that proves filter-before-validate is wired the right way
-      round; if the order is ever flipped, this test goes red. — **step 4**; the
-      `teamDefense` fixture is already waiting in `src/sync/sleeper.fixtures.ts`
+      round; if the order is ever flipped, this test goes red.
+      — `mapSleeperPayload` block in `src/sync/sleeper.test.ts`. **Verified by mutation
+      2026-08-11:** inverting the pipeline turns it red, so it is load-bearing rather than
+      incidentally green. Two flips were needed to prove it, and the second taught the
+      sharper lesson: moving the `safeParse` *call* above the filter changes nothing
+      (`safeParse` is inert — it returns a result), while moving the *throw* above the
+      filter fails instantly. **The order that matters is filter-before-ABORT, not
+      filter-before-parse.**
 - [ ] `CHECK`: inserting `position: 'LB'` directly (bypassing the sync) → Postgres
       rejects it. This is the test that proves the constraint guards *every* write path,
       not just the one we wrote. — **step 4**

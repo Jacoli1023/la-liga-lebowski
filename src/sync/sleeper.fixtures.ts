@@ -74,7 +74,7 @@ export const sleeperFixtures = {
   },
 
   // A team defense: the filter drops this BEFORE Zod sees it. full_name /
-  // years_exp / status are absent — a different shape, not malformed. Kept here
+  // years_exp / status are absent - a different shape, not malformed. Kept here
   // for the later filter-before-validate test, NOT the mapper.
   teamDefense: {
     player_id: "SF",

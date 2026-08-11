@@ -8,8 +8,8 @@ import * as schema from "./schema.js";
  * ./drizzle, and returns a typed Drizzle client.
  *
  * One factory, two callers (spec 002, decision 4):
- *   - createDb("./.data/players")  → persisted to disk  (sync script, dev server)
- *   - createDb()                   → in-memory, fresh    (tests)
+ *   - createDb("./.data/players")  -> persisted to disk  (sync script, dev server)
+ *   - createDb()                   -> in-memory, fresh    (tests)
  *
  * migrationsFolder is resolved from the current working directory. That is the
  * project root for every entry point we have: npm scripts and vitest both run

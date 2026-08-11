@@ -47,9 +47,9 @@ assume competence everywhere else.
 ---
 
 ## Current state (2026-08-11)
-**Vertical slices. Slice 0 (spec 002): implementation underway — build steps 1–3 of 5
-done and green (26 tests, `tsc` clean). Next: step 4, `scripts/sync-players.ts` — fetch,
-filter-before-validate, chunked upsert, idempotency.**
+**Vertical slices. Slice 0 (spec 002): implementation underway — steps 1–3 done, step 4's
+*pure half* done. 30 tests green, `tsc` clean. Nothing touches the database or the network
+yet. Resume at the ⟶ OPEN DECISION below (zero-row policy), then build the write side.**
 
 Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
 `Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
@@ -74,20 +74,24 @@ this league can never roster. It also forces the pipeline order: **filter, then 
 3. ✅ Zod schema + mapper — the anti-corruption boundary. `src/sync/sleeper.ts` holds the
    strict `sleeperPlayerSchema` and `mapSleeperPlayer(player, syncedAt)`. Jacob wrote the
    six tests in `sleeper.test.ts`; fixtures live in `sleeper.fixtures.ts`.
-4. `scripts/sync-players.ts` — fetch, filter-before-validate, chunked upsert, idempotency
-   ← *here*
-   - New ground: `onConflictDoUpdate` on `sleeper_id` (**upsert**), why the insert has to
-     be chunked, and why abort-on-bad-row is safe *because* the sync is idempotent.
-   - Four spec tests are still red and all land here: filter-before-validate (the
-     `teamDefense` fixture is already written and waiting), the `CHECK` constraint
-     rejecting a direct `position: 'LB'` insert, and run-twice idempotency.
+4. The sync — split into a pure half and an I/O half. ← *here, half done*
+   - ✅ **Pure pipeline.** `mapSleeperPayload(payload: unknown, syncedAt): NewPlayer[]` in
+     `src/sync/sleeper.ts` — envelope parse (`z.record`), filter, strict Zod, map. Jacob
+     wrote all five tests, including the architecture-critical filter-before-validate one.
+     *(Decided: extract the pure middle rather than inline it in the script. The filter
+     test then needs no network double, and the fixtures it uses were already written.)*
+   - ☐ `src/db/players.ts` — `upsertPlayers(db, rows)`. `onConflictDoUpdate` on
+     `sleeper_id` (**upsert**), chunked. New ground: why chunking is needed, and why
+     abort-on-bad-row is safe *because* the upsert is idempotent.
+   - ☐ `scripts/sync-players.ts` — `fetchPlayerPool()` + orchestration + the zero-row
+     policy. **Must export a `syncPlayers(...)` function with only a thin entry point at
+     the bottom** — a script that works at import time cannot be tested, and importing it
+     would fetch 14.6MB.
+   - ☐ Spec tests still red: the `CHECK` constraint rejecting a direct `position: 'LB'`
+     insert, and run-twice idempotency.
    - **Nothing in the suite calls `createDb()` yet** — step 2 is committed but unproven by
      the bar. The `CHECK` test is the cheapest fix, since it needs a real DB to mean
-     anything.
-   - Open, architecture-critical, **Jacob's call**: does the whole-payload pipeline
-     (filter → validate → map) live in the script, or as a pure
-     `mapSleeperPayload(payload, syncedAt): NewPlayer[]` in `src/sync/sleeper.ts` with the
-     script holding only fetch + write? Propose both with tradeoffs before writing code.
+     anything. Do it first; it is also the first test to touch PGlite at all.
    - Also still missing: the `sync:players` npm script.
 5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it. Needs the `dev`
    npm script too.
@@ -98,6 +102,23 @@ shell). The sync script mints `new Date()` once per run and passes it for every 
 run = one timestamp, which also buys the stale-row seam (`WHERE synced_at < :runStart`) for
 free later. Full rationale + rejected alternatives in `specs/002-player-sync.md` decision 5.
 **Step 4 owes this decision its half of the bargain:** one `new Date()` per run, threaded.
+
+**⟶ OPEN DECISION (resume here next session) — the zero-row policy.** A sync can produce
+zero rows two ways, and they need opposite responses: an **empty payload** (Sleeper's
+problem — re-run) versus **12,200 entries and none matching QB/RB/WR/TE** (our problem —
+the filter is out of date). Options, laid out in full as spec decision 6: **(A)** abort on
+each, checked separately so the message names which; **(B)** A plus a minimum-row floor,
+which also catches a truncated payload but costs an arbitrary constant; **(C)** no check,
+just print counts. Claude recommended **A** — zero is the only threshold that isn't a
+guess. **Not yet decided.** Jacob decides on return, records it in the spec, then builds.
+
+Two things follow from it and are also unsettled: `fetchPlayerPool()` likely returns the
+*validated envelope* (`Promise<Record<string, unknown>>`) so the script can count entries
+without re-parsing; and the fetch has to be swappable somehow (parameter vs
+`vi.stubGlobal`) — **this is the one honest test double in the slice.** It exists to
+provoke failures that cannot be summoned from the real API (a 500, an empty pool), not to
+isolate units. The database is *not* mocked: in-memory PGlite is the real Postgres,
+injected.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each
@@ -185,6 +206,11 @@ If you can't demo it, it isn't a slice.
 ---
 
 ## Hard conventions
+- **Source code is ASCII-only.** No emoji, em dashes, or arrow glyphs anywhere under
+  `src/` or `scripts/` — not even in comments and JSDoc. Use `-` and `->`. Emphasis comes
+  from wording or CAPS, which the codebase already leans on. Markdown prose is exempt:
+  `specs/*.md` and this file use them deliberately (the `⟶ YOU DECIDE` marker is
+  load-bearing in the REASONS canvas).
 - **Money is always integer cents.** Never floats.
 - **`as` is not validation.** A type assertion is a lie to the compiler with zero
   runtime enforcement. Every external boundary (Sleeper, request bodies, query params)
