@@ -46,10 +46,17 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-08-11)
-**Vertical slices. Slice 0 (spec 002): implementation underway — steps 1–3 done, step 4's
-*pure half* done. 30 tests green, `tsc` clean. Nothing touches the database or the network
-yet. Resume at the ⟶ OPEN DECISION below (zero-row policy), then build the write side.**
+## Current state (2026-08-11, end of session)
+**Vertical slices. Slice 0 (spec 002): implementation underway — steps 1–3 done, step 4
+all but the script. 34 tests green, `tsc` clean. The database is now real and exercised;
+the network is still untouched. Every spec decision is settled — decision 6 (zero-row
+policy) closed this session.**
+
+**⟶ RESUME HERE:** two `TODO`s in `src/db/players.test.ts` are Jacob's to write (the
+scaffold and its reasoning are in the file). **Note 34 includes those two empty tests —
+an empty test body passes.** Then `scripts/sync-players.ts`, which opens with the one
+remaining open question: **how the fetch becomes swappable** (see the bottom of this
+section).
 
 Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
 `Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
@@ -74,25 +81,32 @@ this league can never roster. It also forces the pipeline order: **filter, then 
 3. ✅ Zod schema + mapper — the anti-corruption boundary. `src/sync/sleeper.ts` holds the
    strict `sleeperPlayerSchema` and `mapSleeperPlayer(player, syncedAt)`. Jacob wrote the
    six tests in `sleeper.test.ts`; fixtures live in `sleeper.fixtures.ts`.
-4. The sync — split into a pure half and an I/O half. ← *here, half done*
+4. The sync — split into a pure half and an I/O half. ← *here, nearly done*
    - ✅ **Pure pipeline.** `mapSleeperPayload(payload: unknown, syncedAt): NewPlayer[]` in
      `src/sync/sleeper.ts` — envelope parse (`z.record`), filter, strict Zod, map. Jacob
      wrote all five tests, including the architecture-critical filter-before-validate one.
      *(Decided: extract the pure middle rather than inline it in the script. The filter
      test then needs no network double, and the fixtures it uses were already written.)*
-   - ☐ `src/db/players.ts` — `upsertPlayers(db, rows)`. `onConflictDoUpdate` on
-     `sleeper_id` (**upsert**), chunked. New ground: why chunking is needed, and why
-     abort-on-bad-row is safe *because* the upsert is idempotent.
-   - ☐ `scripts/sync-players.ts` — `fetchPlayerPool()` + orchestration + the zero-row
-     policy. **Must export a `syncPlayers(...)` function with only a thin entry point at
+   - ✅ **`CHECK` test** — `src/db/schema.test.ts`, the first test in the suite to boot
+     PGlite. Mutation-verified: delete the `CHECK` from the migration and it goes red.
+     Ships with a positive control (a legal row inserts, `gen_random_uuid()` fires, the
+     row round-trips) so that "the bad insert failed" can't stay green when *every* insert
+     fails. **This closed the "nothing calls `createDb()`" gap** — step 2 is now proven by
+     the bar, not smoke-checked. Cost: the suite went ~180ms → ~3s.
+   - ✅ **`src/db/players.ts` — `upsertPlayers(db, rows)`.** `onConflictDoUpdate` targeting
+     `sleeper_id` (not the PK — our uuid is fresh every attempt, so a PK conflict never fires),
+     chunked at 1,000. No transaction, deliberately. Full reasoning is in the file's
+     docblock; the short version is in spec 002 near decision 1.
+   - ☐ **Idempotency tests — Jacob's, scaffolded in `src/db/players.test.ts`.** Two
+     `TODO`s: run-twice (four distinct claims, of which *uuid stability* is the one that
+     protects slice 1's contracts) and the chunk boundary at 2,500 rows.
+   - ☐ `scripts/sync-players.ts` — `fetchPlayerPool()` + orchestration + decision 6's two
+     aborts. **Must export a `syncPlayers(...)` function with only a thin entry point at
      the bottom** — a script that works at import time cannot be tested, and importing it
      would fetch 14.6MB.
-   - ☐ Spec tests still red: the `CHECK` constraint rejecting a direct `position: 'LB'`
-     insert, and run-twice idempotency.
-   - **Nothing in the suite calls `createDb()` yet** — step 2 is committed but unproven by
-     the bar. The `CHECK` test is the cheapest fix, since it needs a real DB to mean
-     anything. Do it first; it is also the first test to touch PGlite at all.
-   - Also still missing: the `sync:players` npm script.
+   - ☐ Also still missing: the `sync:players` npm script, and one small carried-over test
+     — the envelope rejecting a non-object payload (`[]`, `null`, `"oops"`, `42`). The
+     behavior is already correct; nothing pins it.
 5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it. Needs the `dev`
    npm script too.
 
@@ -103,22 +117,44 @@ run = one timestamp, which also buys the stale-row seam (`WHERE synced_at < :run
 free later. Full rationale + rejected alternatives in `specs/002-player-sync.md` decision 5.
 **Step 4 owes this decision its half of the bargain:** one `new Date()` per run, threaded.
 
-**⟶ OPEN DECISION (resume here next session) — the zero-row policy.** A sync can produce
-zero rows two ways, and they need opposite responses: an **empty payload** (Sleeper's
-problem — re-run) versus **12,200 entries and none matching QB/RB/WR/TE** (our problem —
-the filter is out of date). Options, laid out in full as spec decision 6: **(A)** abort on
-each, checked separately so the message names which; **(B)** A plus a minimum-row floor,
-which also catches a truncated payload but costs an arbitrary constant; **(C)** no check,
-just print counts. Claude recommended **A** — zero is the only threshold that isn't a
-guess. **Not yet decided.** Jacob decides on return, records it in the spec, then builds.
+**✓ SETTLED (2026-08-11) — the zero-row policy: (A), zero is fatal, checked twice.**
+`syncPlayers` aborts if the payload has no entries *("Sleeper returned an empty pool" —
+theirs, re-run)* and aborts **separately** if entries exist but none survived the filter
+*("12,200 entries, 0 matched QB/RB/WR/TE" — ours, the filter is stale)*. The value is the
+two-message split: it turns "produced nothing" into a diagnosis, and it catches the one
+failure in this slice that would otherwise **look like success** — exit `0` having written
+nothing. Rejected a minimum-row floor (an arbitrary constant, wrong in both directions) and
+no-check-at-all (a policy that silently expires the day the sync is scheduled). Known gap,
+accepted: a *truncated* payload still passes. The honest form of that check is relative
+("the table holds 4,030, today yielded 700"), needs the DB, and belongs to a later slice.
+Full rationale in spec 002, decision 6.
 
-Two things follow from it and are also unsettled: `fetchPlayerPool()` likely returns the
-*validated envelope* (`Promise<Record<string, unknown>>`) so the script can count entries
-without re-parsing; and the fetch has to be swappable somehow (parameter vs
-`vi.stubGlobal`) — **this is the one honest test double in the slice.** It exists to
-provoke failures that cannot be summoned from the real API (a 500, an empty pool), not to
-isolate units. The database is *not* mocked: in-memory PGlite is the real Postgres,
-injected.
+**Where it lives:** `syncPlayers` (the shell). `mapSleeperPayload` keeps returning `[]` for
+an empty payload and is right to — "zero rows is a catastrophe" is a *policy*, not a
+property of a pure transform. That line is already pinned by a test.
+
+**⟶ OPEN QUESTION (next session) — how the fetch becomes swappable.** Parameter injection
+(`syncPlayers(db, fetchPool, syncedAt)` — the double is visible in the signature, costs an
+argument) vs. `vi.stubGlobal('fetch', ...)` (signature stays clean, the double hides in the
+test file). Decide deliberately, not by habit. **This is the slice's one honest test
+double** — it earns its place by provoking failures the real API cannot be asked for (a
+500, an empty pool), not by "isolating units." Note what is *not* mocked: the database.
+In-memory PGlite is real Postgres, injected, so constraint violations are real ones.
+Settled alongside it: `fetchPlayerPool()` returns the *validated envelope*
+(`Promise<Record<string, unknown>>`) so the script can count entries for decision 6's first
+abort without parsing the payload twice. Values stay `unknown` — trust still starts at the
+strict schema.
+
+**Two hard-won facts about this stack, learned 2026-08-11, that will recur:**
+- **Drizzle wraps driver errors.** `err.message` is Drizzle's `Failed query: insert into
+  ...`; the Postgres message and its SQLSTATE are on **`err.cause`**. So
+  `.rejects.toThrow(/constraint_name/)` fails, and worse, a loose matcher can pass by
+  matching the *SQL text* in the wrapper rather than the error. Assert on `err.cause`.
+  (`23` is the integrity-violation class: `23502` not-null, `23503` FK, `23505` unique,
+  `23514` check.)
+- **A statement is capped at 65,535 parameters** (a 16-bit field). At 12 params/row that
+  is 5,461 rows — measured, not guessed. Crossing it produces `Invalid array length`,
+  which names nothing. Hence chunking at 1,000.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each

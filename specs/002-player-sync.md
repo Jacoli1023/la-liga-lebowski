@@ -1,12 +1,18 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (2026-08-11)** — steps 1–3 done, step 4's *pure half* done
-(`mapSleeperPayload`, 30 tests green). Nothing touches the database or the network yet.
-The original seven decisions (2026-07-15) are locked, plus decision 5 (settled
-2026-07-22). **Decision 6 — the zero-row policy — is OPEN and is where to resume.**
-Each is recorded inline below with its rationale *and its cost*. The ⟶ **YOU DECIDE**
-blocks are kept rather than deleted: the question is the context for the answer, and a
-decision without its alternatives is just a rule.
+**Status:** **In progress (2026-08-11, end of session)** — steps 1–3 done, step 4 all but
+the script. 34 tests green, `tsc` clean. **The database is now real and exercised** (the
+`CHECK` test and `upsertPlayers` both run against PGlite); the network is still untouched.
+**All decisions are settled**: the original seven (2026-07-15), decision 5 (2026-07-22),
+and decision 6, the zero-row policy (2026-08-11). Each is recorded inline below with its
+rationale *and its cost*. The ⟶ **YOU DECIDE** blocks are kept rather than deleted: the
+question is the context for the answer, and a decision without its alternatives is just a
+rule.
+
+**Resume at:** the two `TODO`s in `src/db/players.test.ts` (idempotency + chunk boundary,
+Jacob's to write), then `scripts/sync-players.ts`. One question is open and is *not* a spec
+decision because it is a testing-seam choice, not a behavior choice: whether the fetch is
+swapped by **parameter injection** or **`vi.stubGlobal`**. See decision 6's consequences.
 **Why this is the slice:** it is the thinnest thing that touches *every layer* — an
 external API, validation, a mapper, a schema, a migration, a database, and an HTTP
 route. It is deliberately boring. Its job is to prove the wires connect, and to put
@@ -98,6 +104,25 @@ Sleeper's endpoint (`https://api.sleeper.app/v1/players/nfl`) returns a **14.6MB
 draft's "~5MB / ~11k" was a guess). The object's key always equals the row's own
 `player_id`, so either is a stable handle. Sleeper asks that it be called at most once
 per day. This is a script, not a request path.
+
+**Why "chunked" is not a style choice** *(measured 2026-08-11, during step 4)*. A Postgres
+statement counts its parameters in a **16-bit field**, so 65,535 is the hard ceiling. The
+insert sends **12 parameters per row** — `id` costs none, travelling as the literal
+`default`, which the generated SQL confirms. That puts the wall at **5,461 rows**: 5,461
+succeeds, 5,462 fails. Today's ~4,030 would therefore fit in a single statement, at 74% of
+the ceiling.
+
+We chunk anyway, at **1,000**, for a reason that is not "it doesn't fit": *the error when
+you cross it is undiagnosable.* PGlite reports `Invalid array length` at 5,462 rows and
+`Maximum call stack size exceeded` at 12,200. Neither mentions parameters. And 1,000 rather
+than the maximal 5,461 because the ceiling is a function of the **column count** — 5,461
+silently becomes wrong the next time a column is added, while 1,000 survives adding fifty.
+
+*Why this magic number is allowed where decision 6's row floor was not:* this one is **safe
+in the direction it errs**. Too small costs a few extra round trips and nothing else; no
+value is ever silently wrong. The rejected 3,000-row floor was wrong in *both* directions —
+too low to catch real truncation, or high enough to fire on a slow day. A constant is
+acceptable when the cost of being wrong is bounded and cheap.
 
 **The read endpoint** (`src/http/players.ts`):
 ```
@@ -304,7 +329,7 @@ when not, but it **hides** the I/O edge; a caller who forgets the argument silen
 impurity. For a learning slice the explicit boundary teaches more than the convenience saves.
 
 ⟶ **YOU DECIDE (6) — the zero-row policy.** *(Surfaced during implementation of the pure
-pipeline, 2026-08-11. Not in the original draft.)* **Not yet decided — resume here.**
+pipeline, 2026-08-11. Not in the original draft.)*
 
 Decision 3 settled what happens when a *row* is bad: abort. It says nothing about a bad
 *response*. A sync can end up writing **zero rows** by two completely different routes,
@@ -329,12 +354,45 @@ check on `rows.length` alone cannot tell row 2 from row 3 — the remedies are o
 - **(C) No check.** Print the counts and let a human notice. Defensible while the sync is
   run by hand and its output is read.
 
-*Claude recommends **A***: zero is the only threshold that isn't a guess — any positive
-floor is either too low to catch anything or too high and breaks on a slow day. The value
-is the two-message split, which turns "produced nothing" into a diagnosis. The honest
-version of the row-4 check is **relative** ("the table holds 4,030 and today's run yielded
-700"), which needs the database and belongs to a later slice, once the sync is scheduled
-and nobody is watching it run.
+✓ **DECIDED (2026-08-11): A — zero is fatal, checked in two places.**
+
+*Why:* zero is the only threshold that isn't a guess. Any positive floor is either too low
+to catch anything real or too high and breaks on a slow day — and the number would have to
+be re-defended every time the pool moves. Zero needs no defense: a sync that writes nothing
+has failed, always.
+
+*Why two checks and not one:* the value is not the abort, it is the **message**. One check
+on `rows.length` can only say "produced nothing," which is a symptom shared by two problems
+with opposite remedies. Split, each abort names its own diagnosis — *"Sleeper returned an
+empty pool"* (theirs; re-run tomorrow) versus *"12,200 entries, 0 matched QB/RB/WR/TE"*
+(ours; the filter is stale and code must change). The second message is the whole point of
+the decision: it is the one failure in this slice that would otherwise **look like success**
+— fetch fine, JSON fine, envelope fine, every row politely skipped, exit `0`.
+
+*Where it lives — and where it explicitly does not:* the checks belong to `syncPlayers`,
+the **imperative shell**. `mapSleeperPayload` keeps returning `[]` for an empty payload and
+is right to: it is a pure transform, and "zero rows is a catastrophe" is a *policy*, not a
+property of the mapping. The same transform run against a hand-written two-row fixture must
+be free to return zero without anybody throwing. This is the functional-core / imperative-
+shell line drawn about as cleanly as it gets, and there is already a test pinning the pure
+half of it ("returns an empty array for an empty payload").
+
+*What it costs — say it out loud:* row 4 of the table above, the **truncated payload**, is
+not caught. 2,000 entries yielding 700 rows passes both checks and writes 700 rows over a
+table that held 4,030. Accepted, because the honest form of that check is **relative** —
+*"the table holds 4,030 and today's run yielded 700"* — which needs to read the database
+before deciding, and belongs to a later slice, once the sync is scheduled and nobody is
+watching the output. A constant pretending to be that check is worse than no check: it
+looks like a safeguard and is a guess.
+
+*The stale rows this leaves behind:* nothing here deletes. A truncated run upserts its 700
+and leaves the other 3,330 sitting at an older `synced_at` — which is exactly the seam
+decision 5 bought (`WHERE synced_at < :runStartedAt`). Also a later slice. Named here so
+it is a known gap and not a surprise.
+
+*Rejected — (C), print the counts:* defensible only while a human reads the output. It is
+a policy that silently expires the day the sync is scheduled, and nothing in the code marks
+the expiry.
 
 **Consequences to settle alongside it:**
 - `fetchPlayerPool()` likely returns the *validated envelope*
@@ -425,7 +483,17 @@ Added 2026-08-11 by the pure pipeline (`mapSleeperPayload`), all green:
       **The behavior is already correct** — `z.record` accepts only plain objects, checked
       by hand 2026-08-11 — but nothing pins it, so a later loosening of the envelope would
       pass silently. One `toThrow` test, worth writing next session
-- [ ] Sync: run twice → same row count, same data (idempotency) — **step 4**
+- [ ] Sync: run twice → same row count, same data (idempotency) — **scaffolded** in
+      `src/db/players.test.ts`, assertions still to write. Tested at the `upsertPlayers`
+      level rather than the script level: that is where the upsert actually is, and it
+      needs no network double at all. Four distinct claims, not one — the count did not
+      double, the changed field was refreshed (`DO UPDATE`, not `DO NOTHING`), `syncedAt`
+      was bumped, and **every uuid is unchanged**. The last is the one that matters: slice
+      1's contracts will hold those uuids as foreign keys, and nothing else in the suite
+      would notice if a re-sync silently minted new ones.
+- [ ] Chunk boundary: 2,500 rows (chunks of 1000/1000/500) all land — **scaffolded**.
+      Catches an off-by-one in the loop or a dropped final partial chunk, neither of which
+      a 3-row test would show and both of which silently lose players.
 - [ ] `GET /players` with no filters → returns rows — **step 5**
 - [ ] `GET /players?position=ZZ` → **`400`** (decided above) — **step 5**
 
@@ -443,14 +511,32 @@ Added by decision 0 — the filter is now a tested seam, not an implementation d
       (`safeParse` is inert — it returns a result), while moving the *throw* above the
       filter fails instantly. **The order that matters is filter-before-ABORT, not
       filter-before-parse.**
-- [ ] `CHECK`: inserting `position: 'LB'` directly (bypassing the sync) → Postgres
+- [x] `CHECK`: inserting `position: 'LB'` directly (bypassing the sync) → Postgres
       rejects it. This is the test that proves the constraint guards *every* write path,
-      not just the one we wrote. — **step 4**
+      not just the one we wrote. — `src/db/schema.test.ts`. **Verified by mutation
+      2026-08-11:** deleting the `CHECK` from the migration turns it red.
+- [x] Positive control alongside it: a legal row inserts, `gen_random_uuid()` fires, and
+      the row round-trips intact. Not gold-plating — without it, "the bad insert failed"
+      would stay green if *every* insert failed for an unrelated reason. It is also the
+      only thing in the suite that proves `text[]` and `timestamptz` survive the trip
+      (they come back a real JS array and a real `Date`).
 
-**Gap worth naming:** no test in the suite calls `createDb()` yet, so step 2's migration
-is committed but unproven by the bar. (It does work — smoke-checked 2026-08-11.) The
-`CHECK` test above is the cheapest thing that fixes this, since it needs a real database
-to mean anything.
+**Two traps this test taught, worth not re-learning:**
+1. **Drizzle wraps the driver error.** `err.message` is Drizzle's `Failed query: insert
+   into "players" (...)` — the Postgres message and its SQLSTATE live on **`err.cause`**.
+   So `.rejects.toThrow(/players_position_check/)` **fails**, which is a surprise the
+   first time.
+2. **`.rejects.toThrow(/position/)` passes for the wrong reason.** It matches the word
+   `position` in the *column list of the wrapped SQL text*, not the error. Measured: it
+   also passes on a `NOT NULL` violation on `status`, and would stay green with the
+   `CHECK` deleted entirely. The assertion must target `err.cause` — SQLSTATE `23514`
+   plus the constraint name. (`23` is Postgres's integrity-violation class: `23502`
+   not-null, `23503` foreign key, `23505` unique, `23514` check.)
+
+**Gap closed 2026-08-11:** `createDb()` now has callers in the suite, so step 2's
+migration is proven by the bar rather than smoke-checked. Cost: the suite went from
+~180ms to ~1.7s. That is PGlite booting Postgres and running the migration, and it is
+the price of every DB-touching test file from here on.
 
 ---
 
