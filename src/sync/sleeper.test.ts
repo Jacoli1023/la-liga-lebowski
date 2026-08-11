@@ -6,9 +6,20 @@ describe("sleeperPlayerSchema — the strict boundary", () => {
   // Yours to write. The schema is already drafted in sleeper.ts — turn each
   // todo into a real assertion. Hint: parse returns the cleaned object;
   // .safeParse(...).success is the boolean for the rejection case.
-  it.todo("accepts a well-formed skill player");
-  it.todo("strips unknown extra fields (hashtag, search_rank, ...) instead of throwing");
-  it.todo("rejects a player missing a required field (use missingLastName)");
+  it("accepts a well-formed skill player", () => {
+    const parsed = sleeperPlayerSchema.parse(sleeperFixtures.wellFormedRB);
+    expect(parsed.position).toBe("RB");
+    expect(parsed.player_id).toBe("4034");
+  });
+
+  it("strips unknown extra fields (hashtag, search_rank, ...) instead of throwing", () => {
+    const parsed = sleeperPlayerSchema.parse(sleeperFixtures.wellFormedRB);
+    expect(parsed).not.toHaveProperty("hashtag");
+  });
+
+  it("rejects a player missing a required field (use missingLastName)", () => {
+    expect(sleeperPlayerSchema.safeParse(sleeperFixtures.missingLastName).success).toBe(false);
+  });
 });
 
 describe("mapSleeperPlayer — Sleeper JSON → players row", () => {
@@ -21,38 +32,42 @@ describe("mapSleeperPlayer — Sleeper JSON → players row", () => {
   // test that finishes without running a single expect. That's the guard
   // against a "passing" test that verifies nothing.
 
-  // syncedAt is injected here PROVISIONALLY (sourcing is an open decision — see
-  // CLAUDE.md). Injecting keeps the mapper pure, so a fixed timestamp asserts an
-  // EXACT value; if we instead source new Date() inside the mapper, this becomes
-  // toBeInstanceOf(Date). Revisit once the decision is made.
+  // syncedAt is injected (decided 2026-07-22 — spec 002, decision 5). A pure
+  // mapper means a fixed timestamp asserts an EXACT value (toBe), which also
+  // proves the mapper passes it through untouched — not just "is a Date".
   const SYNCED_AT = new Date("2026-07-16T12:00:00.000Z");
 
   it("maps a well-formed player to a row, field by field", () => {
-    expect.hasAssertions();
     const validated = sleeperPlayerSchema.parse(sleeperFixtures.wellFormedRB);
     const row = mapSleeperPlayer(validated, SYNCED_AT);
-    // TODO(jacob): assert each mapped field, e.g.
-    //   expect(row.sleeperId).toBe("4034");
-    //   expect(row.firstName).toBe("Christian");
-    //   expect(row.position).toBe("RB");
-    //   expect(row.fantasyPositions).toEqual(["RB"]);
-    //   expect(row.syncedAt).toBe(SYNCED_AT);   // injected → exact match, not "is a Date"
-    void row;
+
+    expect(row).toEqual({
+      sleeperId: "4034",
+      firstName: "Christian",
+      lastName: "McCaffrey",
+      fullName: "Christian McCaffrey",
+      position: "RB",
+      team: "SF",
+      fantasyPositions: ["RB"],
+      yearsExp: 8,
+      status: "Active",
+      injuryStatus: null,
+      active: true,
+      syncedAt: SYNCED_AT,
+    });
   });
 
   it("keeps a free agent (team: null) without throwing", () => {
-    expect.hasAssertions();
     const validated = sleeperPlayerSchema.parse(sleeperFixtures.freeAgent);
     const row = mapSleeperPlayer(validated, SYNCED_AT);
-    // TODO(jacob): expect(row.team).toBeNull();
-    void row;
+    
+    expect(row.team).toBeNull();
   });
 
   it("carries years_exp: 0 through (the rookie seam)", () => {
-    expect.hasAssertions();
     const validated = sleeperPlayerSchema.parse(sleeperFixtures.rookie);
     const row = mapSleeperPlayer(validated, SYNCED_AT);
-    // TODO(jacob): expect(row.yearsExp).toBe(0);
-    void row;
+
+    expect(row.yearsExp).toBe(0);
   });
 });

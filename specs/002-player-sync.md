@@ -251,6 +251,47 @@ by argument.
 *(Correction to this spec's own numbers: the payload is **14.6MB / 12,200 entries**,
 not ~5MB / ~11k. Measured 2026-07-15.)*
 
+⟶ **YOU DECIDE (5) — `syncedAt` sourcing.** *(Surfaced during implementation, not in
+the original draft — the mapper needs a `synced_at` value for each row.)* Inject it as a
+parameter (`mapSleeperPlayer(player, syncedAt)`), or call `new Date()` inside the mapper?
+Injecting keeps the mapper a **pure** function — deterministic, exact-value tests, one
+timestamp per run. Sourcing it inside is a simpler signature but makes the mapper impure:
+the clock becomes a hidden input, tests can only assert "is a Date," and each of the
+~4,030 rows gets a slightly different timestamp.
+
+✓ **DECIDED (2026-07-22): inject.** `mapSleeperPlayer(player: SleeperPlayer, syncedAt: Date)`.
+The sync script mints `new Date()` **once per run** and passes the same value for every row.
+
+*Why:* `new Date()` is **I/O** — it reads the system clock, a value outside the function's
+arguments, so the mapper's output would stop being determined by its inputs. That makes it
+impure, and the mapper is **functional core**; the clock is the **imperative shell's** job
+(CLAUDE.md — functional core / imperative shell). Injection honors that boundary in the one
+place it is cheapest to.
+
+*Why it is more than philosophy:* **one run = one timestamp** is a real property. It makes
+`WHERE synced_at < :runStartedAt` a clean way to find rows a run did **not** touch — the
+standard stale-row detection for when a player leaves Sleeper's skill-position pool (retires,
+gets cut). Per-row `new Date()` has no single boundary value, so that feature would force
+you to mint and thread a run timestamp *anyway*. Injecting now does honestly, today, what a
+later slice will want.
+
+*What it buys the test:* a fixed `SYNCED_AT` asserts an **exact** value (`toBe`), which also
+proves the mapper passes the timestamp through **untouched** — not merely that it produced
+*a* Date. The impure version can only assert `toBeInstanceOf(Date)`, or stand up
+clock-mocking to test a one-line field mapping.
+
+*The honest smallness:* `synced_at` never feeds a *rule* — it is pure bookkeeping — so this
+is low-stakes today. The value is the **habit** (the same move returns, load-bearing, in
+dead-money-by-season, the rollover cascade, bid resolution) and the stale-row **seam**, not
+the correctness of any calculation.
+
+*What it costs:* one extra argument threaded from the sync script. Accepted — the script
+already holds the timestamp.
+
+*Rejected — default parameter (`syncedAt: Date = new Date()`):* pure when passed, convenient
+when not, but it **hides** the I/O edge; a caller who forgets the argument silently gets
+impurity. For a learning slice the explicit boundary teaches more than the convenience saves.
+
 ## O — Operations (the interface)
 ```
 GET /players

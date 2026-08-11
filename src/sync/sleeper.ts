@@ -41,14 +41,25 @@ type NewPlayer = typeof players.$inferInsert;
  * (camelCase, `sleeperId`). If Sleeper renames a field, THIS file breaks and
  * nothing downstream does — that is the entire job of the boundary.
  *
- * `syncedAt` is injected here PROVISIONALLY — the sourcing is an OPEN decision
- * for next session (see CLAUDE.md "OPEN DECISION"). Injecting keeps the mapper a
- * PURE function: the clock is I/O and belongs at the edge (the sync script mints
- * one timestamp per run and passes it for every row). The alternative is calling
- * `new Date()` inside the mapper — simpler, but impure.
- *
- * TODO(jacob): settle syncedAt sourcing, then implement to green.
+ * `syncedAt` is INJECTED (decided 2026-07-22 — spec 002, decision 5). This keeps
+ * the mapper a PURE function: the clock is I/O and belongs at the edge, so the
+ * sync script mints one timestamp per run and passes it for every row. One run =
+ * one timestamp. (The rejected alternative was `new Date()` inside the mapper —
+ * simpler signature, but impure and untestable by exact value.)
  */
 export function mapSleeperPlayer(player: SleeperPlayer, syncedAt: Date): NewPlayer {
-  throw new Error("mapSleeperPlayer not implemented");
+  return {
+    sleeperId: player.player_id,
+    firstName: player.first_name,
+    lastName: player.last_name,
+    fullName: player.full_name,
+    position: player.position,
+    team: player.team,
+    fantasyPositions: player.fantasy_positions,
+    yearsExp: player.years_exp,
+    status: player.status,
+    injuryStatus: player.injury_status,
+    active: player.active,
+    syncedAt: syncedAt,
+  };
 }
