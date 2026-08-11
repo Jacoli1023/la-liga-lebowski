@@ -1,9 +1,12 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **Decided (2026-07-15)** — all seven decisions locked, each recorded inline
-below with its rationale *and its cost*. Implementation not started. The ⟶ **YOU DECIDE**
-blocks are kept rather than deleted: the question is the context for the answer, and a
-decision without its alternatives is just a rule.
+**Status:** **In progress (build steps 1–3 of 5 done, 2026-08-11).** All decisions are
+locked — the original seven (2026-07-15) plus decision 5, which surfaced during
+implementation and was settled 2026-07-22. Each is recorded inline below with its
+rationale *and its cost*. The ⟶ **YOU DECIDE** blocks are kept rather than deleted: the
+question is the context for the answer, and a decision without its alternatives is just
+a rule. Next: **step 4, `scripts/sync-players.ts`** — see the test plan at the bottom for
+what is still red.
 **Why this is the slice:** it is the thinnest thing that touches *every layer* — an
 external API, validation, a mapper, a schema, a migration, a database, and an HTTP
 route. It is deliberately boring. Its job is to prove the wires connect, and to put
@@ -344,23 +347,37 @@ The mapper is the anti-corruption boundary, which makes it architecture-critical
 makes it **your rep.** Claude may hand you a saved Sleeper fixture; you write the
 assertions.
 
-- [ ] Mapper: a well-formed Sleeper player → the expected row, field by field
-- [ ] Mapper: a player with `team: null` (free agent) → survives, doesn't throw
-- [ ] Mapper: `years_exp: 0` → rookie is correctly identified
-- [ ] Zod: a payload missing a required field → rejected (per your decision #3)
-- [ ] Sync: run twice → same row count, same data (idempotency)
-- [ ] `GET /players` with no filters → returns rows
-- [ ] `GET /players?position=ZZ` → **`400`** (decided above)
+*Progress marked 2026-08-11. Checked boxes are green in the suite; the file and
+describe block that covers each is named so a future reader can find it.*
+
+- [x] Mapper: a well-formed Sleeper player → the expected row, field by field
+      — `src/sync/sleeper.test.ts`, "maps a well-formed player to a row, field by field"
+- [x] Mapper: a player with `team: null` (free agent) → survives, doesn't throw
+- [x] Mapper: `years_exp: 0` → rookie is correctly identified
+- [x] Zod: a payload missing a required field → rejected (per your decision #3)
+      — `missingLastName` via `.safeParse(...).success === false`
+- [x] Zod: unknown extra fields (`hashtag`, `search_rank`) are **dropped**, not a crash
+      *(not in the original plan; it is the Safeguards bullet, so it earned a test)*
+- [ ] Sync: run twice → same row count, same data (idempotency) — **step 4**
+- [ ] `GET /players` with no filters → returns rows — **step 5**
+- [ ] `GET /players?position=ZZ` → **`400`** (decided above) — **step 5**
 
 Added by decision 0 — the filter is now a tested seam, not an implementation detail:
-- [ ] `isLeaguePosition`: `QB`/`RB`/`WR`/`TE` → true; `K`/`DEF`/`LB`/`OL` → false
-- [ ] `isLeaguePosition`: `null` position → false (240 such rows exist)
+- [x] `isLeaguePosition`: `QB`/`RB`/`WR`/`TE` → true; `K`/`DEF`/`LB`/`OL` → false
+      — `src/domain/rules.test.ts` (14 cases, incl. `''` and lowercase `'qb'`)
+- [x] `isLeaguePosition`: `null` position → false (240 such rows exist)
 - [ ] Filter: a team defense (`player_id: "HOU"`, no `full_name`) → skipped, **not** an
       abort. This is the test that proves filter-before-validate is wired the right way
-      round; if the order is ever flipped, this test goes red.
+      round; if the order is ever flipped, this test goes red. — **step 4**; the
+      `teamDefense` fixture is already waiting in `src/sync/sleeper.fixtures.ts`
 - [ ] `CHECK`: inserting `position: 'LB'` directly (bypassing the sync) → Postgres
       rejects it. This is the test that proves the constraint guards *every* write path,
-      not just the one we wrote.
+      not just the one we wrote. — **step 4**
+
+**Gap worth naming:** no test in the suite calls `createDb()` yet, so step 2's migration
+is committed but unproven by the bar. (It does work — smoke-checked 2026-08-11.) The
+`CHECK` test above is the cheapest thing that fixes this, since it needs a real database
+to mean anything.
 
 ---
 

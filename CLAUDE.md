@@ -46,9 +46,10 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-07-16)
-**Vertical slices. Slice 0 (spec 002): implementation underway — build steps 1–2 done,
-step 3 (the mapper) parked mid-flight as a red TDD bar, with one open decision to settle.**
+## Current state (2026-08-11)
+**Vertical slices. Slice 0 (spec 002): implementation underway — build steps 1–3 of 5
+done and green (26 tests, `tsc` clean). Next: step 4, `scripts/sync-players.ts` — fetch,
+filter-before-validate, chunked upsert, idempotency.**
 
 Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
 `Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
@@ -56,32 +57,47 @@ survives** — it becomes the pure functional core. It was built with no consume
 is exactly the trap the pivot is correcting.
 
 **Slice 0 — the walking skeleton.** Sleeper API → Zod → Drizzle → PGlite → `GET /players`.
-The stack is installed. All seven decisions are locked in `specs/002-player-sync.md`,
-each with its rationale *and its cost* — **read that spec before touching slice 0 code.**
+The stack is installed. Every decision is locked in `specs/002-player-sync.md` — the
+original seven plus decision 5 (`syncedAt`), which surfaced during implementation — each
+with its rationale *and its cost*. **Read that spec before touching slice 0 code.**
 
 The headline decision: the sync mirrors only the **~4,030 QB/RB/WR/TE rows** of Sleeper's
 12,200, because `docs/la-liga-rules.txt:6` makes La Liga offense-only. That is what lets
 the Zod schema be strict — the payload's nullability chaos lives almost entirely in rows
 this league can never roster. It also forces the pipeline order: **filter, then validate.**
 
-**Build order — data-flow, one new layer per step. Currently: step 3.**
+**Build order — data-flow, one new layer per step. Currently: step 4.**
 1. ✅ `POSITIONS` / `Position` / `isLeaguePosition` in `rules.ts` — pure, no new tools
 2. ✅ `src/db/schema.ts` + migration `0000_create_players` (the `CHECK` on `position` is
    generated from `POSITIONS`). `src/db/client.ts` — `createDb(path?)` factory applies it
    (PGlite + Drizzle + `migrate`); one factory, two callers (disk vs in-memory).
-3. Zod schema + mapper — the anti-corruption boundary; **Jacob writes these tests** ← *here*
-   - `src/sync/sleeper.ts`: strict `sleeperPlayerSchema` (drafted) + `mapSleeperPlayer`
-     (throwing stub — TDD red). Fixtures + failing test scaffold live in `src/sync/`.
-   - Remaining: implement the mapper to green, write the field assertions, convert the
-     three `it.todo` schema tests.
-4. `scripts/sync-players.ts` — upsert, idempotency
-5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it
+3. ✅ Zod schema + mapper — the anti-corruption boundary. `src/sync/sleeper.ts` holds the
+   strict `sleeperPlayerSchema` and `mapSleeperPlayer(player, syncedAt)`. Jacob wrote the
+   six tests in `sleeper.test.ts`; fixtures live in `sleeper.fixtures.ts`.
+4. `scripts/sync-players.ts` — fetch, filter-before-validate, chunked upsert, idempotency
+   ← *here*
+   - New ground: `onConflictDoUpdate` on `sleeper_id` (**upsert**), why the insert has to
+     be chunked, and why abort-on-bad-row is safe *because* the sync is idempotent.
+   - Four spec tests are still red and all land here: filter-before-validate (the
+     `teamDefense` fixture is already written and waiting), the `CHECK` constraint
+     rejecting a direct `position: 'LB'` insert, and run-twice idempotency.
+   - **Nothing in the suite calls `createDb()` yet** — step 2 is committed but unproven by
+     the bar. The `CHECK` test is the cheapest fix, since it needs a real DB to mean
+     anything.
+   - Open, architecture-critical, **Jacob's call**: does the whole-payload pipeline
+     (filter → validate → map) live in the script, or as a pure
+     `mapSleeperPayload(payload, syncedAt): NewPlayer[]` in `src/sync/sleeper.ts` with the
+     script holding only fetch + write? Propose both with tradeoffs before writing code.
+   - Also still missing: the `sync:players` npm script.
+5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it. Needs the `dev`
+   npm script too.
 
-**⟶ OPEN DECISION (resume here next session): `mapSleeperPlayer` timestamp sourcing.**
-`syncedAt` is currently injected as a parameter *provisionally* — a pure mapper,
-deterministic tests, one timestamp per sync run. The alternative is sourcing `new Date()`
-inside the mapper (simpler, impure, tests can only assert "is a Date"). **Not yet decided.**
-Jacob decides on return, then records it in `specs/002-player-sync.md` and implements.
+**✓ SETTLED (2026-07-22) — `mapSleeperPlayer` timestamp sourcing: inject.** `syncedAt` is a
+parameter, keeping the mapper pure (functional core; the clock is I/O and belongs to the
+shell). The sync script mints `new Date()` once per run and passes it for every row — one
+run = one timestamp, which also buys the stale-row seam (`WHERE synced_at < :runStart`) for
+free later. Full rationale + rejected alternatives in `specs/002-player-sync.md` decision 5.
+**Step 4 owes this decision its half of the bargain:** one `new Date()` per run, threaded.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each
