@@ -46,6 +46,11 @@ describe("upsertPlayers", () => {
     }));
   }
 
+  /** sleeperId -> our uuid. A map so identity is compared by key, never by row order. */
+  function idsBySleeperId(rows: { sleeperId: string; id: string }[]) {
+    return new Map(rows.map((row) => [row.sleeperId, row.id]));
+  }
+
   const RUN_1 = new Date("2026-08-11T12:00:00.000Z");
   const RUN_2 = new Date("2026-08-12T12:00:00.000Z");
 
@@ -65,15 +70,26 @@ describe("upsertPlayers", () => {
   // contracts will hold these uuids as foreign keys. If a re-sync silently minted
   // new ones, every contract in the league would point at a player who no longer
   // exists - and nothing else in this file would notice.
-  //
-  // Hint for (4): capture a Map of sleeperId -> id after the first run, then
-  // compare after the second.
   it("run twice: updates in place, keeps every uuid stable", async () => {
+    // first run
     await upsertPlayers(db, pool(3, "SF", RUN_1));
-    // TODO: snapshot the rows (db.select().from(players)) and their uuids
+    const afterRun1 = await db.select().from(players);
 
+    // second run
     await upsertPlayers(db, pool(3, "KC", RUN_2));
-    // TODO: assert all four claims above
+    const afterRun2 = await db.select().from(players);
+
+    // (1) no duplicates
+    expect(afterRun2).toHaveLength(3);
+
+    // (2) + (3) team field and timestamp updated
+    for (const row of afterRun2) {
+      expect(row.team).toBe("KC");
+      expect(row.syncedAt).toEqual(RUN_2);
+    }
+
+    // (4) uuids remain unchanged
+    expect(idsBySleeperId(afterRun2)).toEqual(idsBySleeperId(afterRun1));
   });
 
   // THE CHUNK BOUNDARY.
@@ -86,7 +102,9 @@ describe("upsertPlayers", () => {
   // 2,500 is chosen to be more than two full chunks AND to leave a remainder.
   // It takes ~150ms, which is the honest price of testing the real boundary.
   it("writes every row when the input spans multiple chunks", async () => {
-    // TODO: upsert pool(2500, ...) and assert all 2,500 landed.
-    // Counting: db.select().from(players) then .length is fine at this size.
+    await upsertPlayers(db, pool(2500, "DAL", RUN_1));
+    const rows = await db.select().from(players);
+
+    expect(rows).toHaveLength(2500);
   });
 });

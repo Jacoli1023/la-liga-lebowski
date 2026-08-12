@@ -1,18 +1,18 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (2026-08-11, end of session)** — steps 1–3 done, step 4 all but
-the script. 34 tests green, `tsc` clean. **The database is now real and exercised** (the
-`CHECK` test and `upsertPlayers` both run against PGlite); the network is still untouched.
-**All decisions are settled**: the original seven (2026-07-15), decision 5 (2026-07-22),
-and decision 6, the zero-row policy (2026-08-11). Each is recorded inline below with its
-rationale *and its cost*. The ⟶ **YOU DECIDE** blocks are kept rather than deleted: the
-question is the context for the answer, and a decision without its alternatives is just a
-rule.
+**Status:** **In progress (2026-08-12)** — steps 1–3 done, step 4 is **test-complete**; only
+`scripts/sync-players.ts` and the `sync:players` npm script remain. 34 tests green, `tsc`
+clean, and all 34 now have bodies (the two idempotency placeholders were filled in
+2026-08-12). **The database is real and exercised** (the `CHECK` test and `upsertPlayers`
+both run against PGlite); the network is still untouched. **Nothing is open**: the original seven decisions (2026-07-15), decision 5
+(2026-07-22), decision 6's zero-row policy (2026-08-11), and decision 7's fetch seam
+(2026-08-12). Each is recorded inline below with its rationale *and its cost*. The ⟶ **YOU
+DECIDE** blocks are kept rather than deleted: the question is the context for the answer, and
+a decision without its alternatives is just a rule.
 
 **Resume at:** the two `TODO`s in `src/db/players.test.ts` (idempotency + chunk boundary,
-Jacob's to write), then `scripts/sync-players.ts`. One question is open and is *not* a spec
-decision because it is a testing-seam choice, not a behavior choice: whether the fetch is
-swapped by **parameter injection** or **`vi.stubGlobal`**. See decision 6's consequences.
+Jacob's to write), then `scripts/sync-players.ts` — whose signature decision 7 now fixes as
+`syncPlayers(db, fetchPool, syncedAt)`.
 **Why this is the slice:** it is the thinnest thing that touches *every layer* — an
 external API, validation, a mapper, a schema, a migration, a database, and an HTTP
 route. It is deliberately boring. Its job is to prove the wires connect, and to put
@@ -407,6 +407,53 @@ the expiry.
   pool) — not by "isolating units." Note what is *not* mocked: the database. In-memory
   PGlite is real Postgres, injected, so constraint violations are real.
 
+⟶ **YOU DECIDE (7) — the fetch seam.** *(The last of decision 6's consequences. Parked
+2026-08-11, settled 2026-08-12. Not a behavior decision — a testing-seam decision, which is
+why it lives at the end of decision 6 rather than standing alone.)* The sync has to be
+testable against an empty pool, a 500, and a malformed running back, and **none of the three
+can be requested from the real API** — that is the entire reason a double is allowed here.
+Two ways to place it: **hand the fetch over** as a parameter (`syncPlayers(db, fetchPool,
+syncedAt)`), or **reach around it** with `vi.stubGlobal('fetch', ...)`.
+
+✓ **DECIDED (2026-08-12): hand it over.** `syncPlayers(db, fetchPool, syncedAt)`, where
+`fetchPool: () => Promise<Record<string, unknown>>`.
+
+*Why — the reframe that settled it:* this looks like one choice and is really two, because
+**two stacked functions want a seam and their subjects differ.** `fetchPlayerPool`'s subject
+is the HTTP call — the URL, the `res.ok` check, `.json()`, the envelope. `syncPlayers`'s
+subject is *policy* — decision 6's two aborts, decision 3's abort, one timestamp threaded.
+A test of the first wants a fake HTTP **response**; a test of the second wants a fake player
+**pool**, a plain object. Swapping `fetch` to serve the second means building the object,
+`JSON.stringify`-ing it, wrapping it in a `Response`, and letting `fetchPlayerPool` `.json()`
+it back into the object you started with — a round trip to nowhere, in every policy test. So
+the question was never "which technique." It was "at which level do I cut," and the level
+differs per function.
+
+*What else it buys:* the seam is in the **type signature**, so the function's I/O is visible
+to a reader instead of hidden in a test file. No global mutation, therefore no
+`unstubAllGlobals` cleanup and no way for one test to leak into the next. And it makes
+three-of-three — `db` (decision 4), `syncedAt` (decision 5), `fetchPool` — one injection
+pattern in this slice, not two.
+
+*What it costs — say it out loud:* **the function you replace is the function you do not
+test.** Parameter injection cannot exercise `fetchPlayerPool` at all, so the URL, the status
+check, and the envelope parse ship unexecuted by the suite. A typo in the URL stays green.
+And the status check is worth more than it looks: **`fetch` does not throw on a 404 or a
+500.** It rejects only on a network-level failure (DNS, connection refused), so a 500 is a
+*successful* fetch carrying an HTML error page — and without an explicit `res.ok` check you
+call `.json()` on HTML and get a parse error that names nothing.
+
+✓ **DECIDED alongside it (2026-08-12): that gap stays open, deliberately.** Closing it means
+a separate small file swapping global `fetch` — the right tool, at the right level — and it
+is worth writing once the script exists and its shape has stopped moving. Recorded in the
+test plan as a **named gap** rather than left to be rediscovered.
+
+*Not blocked by that:* the carried-over envelope test needs no fetch at all. The `z.record`
+envelope also lives in `mapSleeperPayload`, so `mapSleeperPayload([], syncedAt)` is a pure
+`toThrow` and can be written any time. (`fetchPlayerPool` parsing the envelope too is a
+**deliberate** double parse — a shallow key walk, and the price of each function defending
+its own boundary. Comment it as such so it does not read like an oversight.)
+
 ## O — Operations (the interface)
 ```
 GET /players
@@ -482,18 +529,46 @@ Added 2026-08-11 by the pure pipeline (`mapSleeperPayload`), all green:
 - [ ] Envelope: a payload that is not an object (`[]`, `null`, `"oops"`, `42`) → rejected.
       **The behavior is already correct** — `z.record` accepts only plain objects, checked
       by hand 2026-08-11 — but nothing pins it, so a later loosening of the envelope would
-      pass silently. One `toThrow` test, worth writing next session
-- [ ] Sync: run twice → same row count, same data (idempotency) — **scaffolded** in
-      `src/db/players.test.ts`, assertions still to write. Tested at the `upsertPlayers`
-      level rather than the script level: that is where the upsert actually is, and it
-      needs no network double at all. Four distinct claims, not one — the count did not
-      double, the changed field was refreshed (`DO UPDATE`, not `DO NOTHING`), `syncedAt`
-      was bumped, and **every uuid is unchanged**. The last is the one that matters: slice
-      1's contracts will hold those uuids as foreign keys, and nothing else in the suite
-      would notice if a re-sync silently minted new ones.
-- [ ] Chunk boundary: 2,500 rows (chunks of 1000/1000/500) all land — **scaffolded**.
-      Catches an off-by-one in the loop or a dropped final partial chunk, neither of which
-      a 3-row test would show and both of which silently lose players.
+      pass silently. One `toThrow` test against `mapSleeperPayload`; needs no fetch double,
+      so decision 7's deferral does **not** block it
+
+**NAMED GAP (opened 2026-08-12 by decision 7) — `fetchPlayerPool` has no test.** Parameter
+injection replaces it in every `syncPlayers` test, so its URL, its `res.ok` check, and its
+envelope parse are never executed by the suite. Closing it needs its own file swapping global
+`fetch`, and buys two assertions worth having:
+- [ ] `fetchPlayerPool`: a **500** response → aborts with a message naming the status. The
+      one that actually matters — `fetch` does not throw on a 500, so this is the check most
+      easily left out, and leaving it out turns an outage into an unreadable JSON parse error
+- [ ] `fetchPlayerPool`: a **200 carrying a non-object body** → aborts at the envelope
+- [x] Sync: run twice → same row count, same data (idempotency) — `src/db/players.test.ts`,
+      written 2026-08-12. Tested at the `upsertPlayers` level rather than the script level:
+      that is where the upsert actually is, and it needs no network double at all. Four
+      distinct claims, not one — the count did not double, the changed field was refreshed
+      (`DO UPDATE`, not `DO NOTHING`), `syncedAt` was bumped, and **every uuid is
+      unchanged**. The last is the one that matters: slice 1's contracts will hold those
+      uuids as foreign keys, and nothing else in the suite would notice if a re-sync
+      silently minted new ones.
+- [x] Chunk boundary: 2,500 rows (chunks of 1000/1000/500) all land — written 2026-08-12.
+      **Verified by mutation 2026-08-12:** dropping the final partial chunk turns it red, so
+      it is load-bearing. Two mutations survive, and both survive *correctly* — worth
+      recording so nobody later mistakes them for holes:
+      **(a) overlapping chunks** (`i += CHUNK_SIZE - 1`) stays green, because re-writing a
+      row that is already correct changes no observable state. That is the idempotency of
+      the upsert paying for itself in an unexpected place; no assertion *can* see it.
+      **(b) no chunking at all** (`CHUNK_SIZE = 100_000`) stays green, because 2,500 is
+      under the measured 5,461 wall. So the test proves chunking is **harmless**, not that
+      it **happens** — the right scope. Proving the latter would mean asserting on how many
+      statements Drizzle issued (testing the implementation), and a 6,000-row version would
+      not help either: it passes with chunking and *keeps* passing after a column is added
+      and the real wall drops. The docblock's measured `5,461` is the honest record of that
+      fact; a test cannot improve on it.
+
+**What makes the count assertion sufficient** (`expect(rows).toHaveLength(2500)`): the count
+alone only says "2,500 rows exist." It becomes "all 2,500 landed" only because `sleeper_id`
+is `UNIQUE` — that forces 2,500 *distinct* external keys, and rows can only originate from
+the input. Drop the constraint and the same assertion passes with 2,499 real players and one
+duplicate. **The schema is doing half the work of the test**, which is the "where invariants
+live" table in CLAUDE.md showing up in practice.
 - [ ] `GET /players` with no filters → returns rows — **step 5**
 - [ ] `GET /players?position=ZZ` → **`400`** (decided above) — **step 5**
 
