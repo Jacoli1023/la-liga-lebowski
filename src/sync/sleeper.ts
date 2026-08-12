@@ -67,7 +67,7 @@ export function mapSleeperPlayer(player: SleeperPlayer, syncedAt: Date): NewPlay
  * whose keys are strings"; each VALUE stays `unknown`, because trust starts
  * after the strict schema, not before.
  */
-const sleeperPayloadSchema = z.record(z.string(), z.unknown());
+export const sleeperPayloadSchema = z.record(z.string(), z.unknown());
 
 /**
  * Just enough of a row to make the ROUTING decision - nothing more.

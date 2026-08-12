@@ -1,18 +1,47 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (2026-08-12)** — steps 1–3 done, step 4 is **test-complete**; only
-`scripts/sync-players.ts` and the `sync:players` npm script remain. 34 tests green, `tsc`
-clean, and all 34 now have bodies (the two idempotency placeholders were filled in
-2026-08-12). **The database is real and exercised** (the `CHECK` test and `upsertPlayers`
-both run against PGlite); the network is still untouched. **Nothing is open**: the original seven decisions (2026-07-15), decision 5
+**Status:** **In progress (2026-08-12)** — **steps 1–4 DONE**, step 5 (the HTTP layer) is all
+that remains. 34 tests green, `tsc` clean. **The network is no longer untouched:**
+`npm run sync:players` has been run twice against the live Sleeper API, writing **4,038 rows**
+(QB=474, RB=928, TE=845, WR=1791) from 12,200 entries. Requirement 1 of the Definition of
+Done below is **met and demonstrated**.
+
+**The measurement worth keeping from that run:** after the second run, the table held
+**one distinct `synced_at` across all 4,038 rows**. That is decision 5's "one run = one
+timestamp" *and* proof that the second run refreshed **every** row rather than a subset —
+idempotency demonstrated at full scale against the real feed, not a 3-row fixture.
+
+**Nullability re-measured live (2026-08-12)**, against decision 2's July figures: free
+agents 3,044 (was 3,062), null `years_exp` 9 (was 9), null `injury_status` 3,838 (was
+3,868). A few dozen rows of drift in one month — quiet vindication of decision 6's refusal
+to pick a minimum-row floor, since the number it would have been pinned to is visibly not a
+constant. **Nothing is open**: the original seven decisions (2026-07-15), decision 5
 (2026-07-22), decision 6's zero-row policy (2026-08-11), and decision 7's fetch seam
 (2026-08-12). Each is recorded inline below with its rationale *and its cost*. The ⟶ **YOU
 DECIDE** blocks are kept rather than deleted: the question is the context for the answer, and
 a decision without its alternatives is just a rule.
 
-**Resume at:** the two `TODO`s in `src/db/players.test.ts` (idempotency + chunk boundary,
-Jacob's to write), then `scripts/sync-players.ts` — whose signature decision 7 now fixes as
-`syncPlayers(db, fetchPool, syncedAt)`.
+**Resume at:** step 5 — `src/http/players.ts` and the `dev` npm script. One small test is
+still owed and it is Jacob's: the envelope rejecting a non-object payload (below).
+
+**Two bugs found by the first real runs, both now fixed and both in the persistence
+lifecycle rather than the sync logic** — worth recording because neither could have been
+caught by the test suite as designed, since the suite uses in-memory PGlite and the entry
+point is the one thing no test imports:
+1. **PGlite's mkdir is not recursive.** `./.data/players` fails with `ENOENT` when `./.data`
+   does not exist, i.e. on every fresh clone. Fixed in `createDb` rather than the script,
+   because step 5's dev server opens the same path and the Safeguards below require it to
+   start even when the sync has never run.
+2. **A disk-backed PGlite must be closed.** Exiting without `db.$client.close()` leaves an
+   unclean shutdown, and **the next run hangs forever** - run 1 fine, run 2 never returns.
+   That is requirement 1 ("running it twice produces the same result") broken in the
+   nastiest available shape, since the run that fails is not the run that misbehaved. The
+   entry point now closes in a `finally`, so it happens on the success path, the error path,
+   and the createDb-threw path alike.
+
+Both arrived disguised as something else: the missing directory presented as Drizzle's
+`Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"`, with the real `ENOENT` on `err.cause`.
+Third appearance of that trap in this slice.
 **Why this is the slice:** it is the thinnest thing that touches *every layer* — an
 external API, validation, a mapper, a schema, a migration, a database, and an HTTP
 route. It is deliberately boring. Its job is to prove the wires connect, and to put

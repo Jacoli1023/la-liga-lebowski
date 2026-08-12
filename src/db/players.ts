@@ -1,9 +1,6 @@
 import { sql } from "drizzle-orm";
 import { players, type NewPlayer } from "./schema.js";
-import type { createDb } from "./client.js";
-
-/** A Drizzle client as createDb hands it back. */
-type Db = Awaited<ReturnType<typeof createDb>>;
+import type { Db } from "./client.js";
 
 /**
  * How many rows go in one INSERT statement.

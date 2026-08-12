@@ -46,17 +46,27 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-08-11, end of session)
-**Vertical slices. Slice 0 (spec 002): implementation underway — steps 1–3 done, step 4
-all but the script. 34 tests green, `tsc` clean. The database is now real and exercised;
-the network is still untouched. Every spec decision is settled — decision 6 (zero-row
-policy) closed this session.**
+## Current state (2026-08-12, end of session)
+**Vertical slices. Slice 0 (spec 002): steps 1–4 DONE. The sync runs end to end against the
+real Sleeper API and is idempotent in production, not just in tests. 34 tests green, `tsc`
+clean. Only step 5 — the HTTP layer — remains.**
 
-**⟶ RESUME HERE:** two `TODO`s in `src/db/players.test.ts` are Jacob's to write (the
-scaffold and its reasoning are in the file). **Note 34 includes those two empty tests —
-an empty test body passes.** Then `scripts/sync-players.ts`, which opens with the one
-remaining open question: **how the fetch becomes swappable** (see the bottom of this
-section).
+**⟶ RESUME HERE:** step 5, `src/http/players.ts` — Hono, `zValidator`, serialize, then
+`curl` it. Needs the `dev` npm script. That is the last thing between this slice and its
+Definition of Done. **One small test is still owed and it is Jacob's:** the envelope
+rejecting a non-object payload (`[]`, `null`, `"oops"`, `42`) — one `toThrow` against
+`mapSleeperPayload`, no fetch double needed. The behavior is already correct; nothing pins it.
+
+**Proven end to end 2026-08-12** by two consecutive real runs of `npm run sync:players`:
+- **4,038 rows** written from 12,200 entries. QB=474, RB=928, TE=845, WR=1791.
+- **One distinct `synced_at` across all 4,038 rows.** This is the strongest evidence in the
+  project: it proves decision 5's "one run = one timestamp" *and* that the second run
+  refreshed **every** row rather than a subset. Idempotency at full scale, against the live
+  feed rather than a 3-row fixture.
+- Nullability re-measured live: 3,044 free agents, 9 null `years_exp`, 3,838 null
+  `injury_status`. Spec 002's July figures were 3,062 / 9 / 3,868 — a few dozen rows of
+  drift in one month, which is quiet vindication of decision 6's refusal to pick a
+  minimum-row floor.
 
 Prior work: an in-memory domain core with `RosterStatus`, `CAP_MULTIPLIER_PCT`,
 `Contract.calcCapHit()`, `Team.calcCapUsed()`, and 6 green Vitest tests. **All of that
@@ -73,7 +83,7 @@ The headline decision: the sync mirrors only the **~4,030 QB/RB/WR/TE rows** of 
 the Zod schema be strict — the payload's nullability chaos lives almost entirely in rows
 this league can never roster. It also forces the pipeline order: **filter, then validate.**
 
-**Build order — data-flow, one new layer per step. Currently: step 4.**
+**Build order — data-flow, one new layer per step. Currently: step 5.**
 1. ✅ `POSITIONS` / `Position` / `isLeaguePosition` in `rules.ts` — pure, no new tools
 2. ✅ `src/db/schema.ts` + migration `0000_create_players` (the `CHECK` on `position` is
    generated from `POSITIONS`). `src/db/client.ts` — `createDb(path?)` factory applies it
@@ -81,7 +91,7 @@ this league can never roster. It also forces the pipeline order: **filter, then 
 3. ✅ Zod schema + mapper — the anti-corruption boundary. `src/sync/sleeper.ts` holds the
    strict `sleeperPlayerSchema` and `mapSleeperPlayer(player, syncedAt)`. Jacob wrote the
    six tests in `sleeper.test.ts`; fixtures live in `sleeper.fixtures.ts`.
-4. The sync — split into a pure half and an I/O half. ← *here, nearly done*
+4. ✅ The sync — split into a pure half and an I/O half. **Done 2026-08-12.**
    - ✅ **Pure pipeline.** `mapSleeperPayload(payload: unknown, syncedAt): NewPlayer[]` in
      `src/sync/sleeper.ts` — envelope parse (`z.record`), filter, strict Zod, map. Jacob
      wrote all five tests, including the architecture-critical filter-before-validate one.
@@ -97,18 +107,25 @@ this league can never roster. It also forces the pipeline order: **filter, then 
      `sleeper_id` (not the PK — our uuid is fresh every attempt, so a PK conflict never fires),
      chunked at 1,000. No transaction, deliberately. Full reasoning is in the file's
      docblock; the short version is in spec 002 near decision 1.
-   - ☐ **Idempotency tests — Jacob's, scaffolded in `src/db/players.test.ts`.** Two
-     `TODO`s: run-twice (four distinct claims, of which *uuid stability* is the one that
-     protects slice 1's contracts) and the chunk boundary at 2,500 rows.
-   - ☐ `scripts/sync-players.ts` — `fetchPlayerPool()` + orchestration + decision 6's two
-     aborts. **Must export a `syncPlayers(...)` function with only a thin entry point at
-     the bottom** — a script that works at import time cannot be tested, and importing it
-     would fetch 14.6MB.
-   - ☐ Also still missing: the `sync:players` npm script, and one small carried-over test
-     — the envelope rejecting a non-object payload (`[]`, `null`, `"oops"`, `42`). The
-     behavior is already correct; nothing pins it.
+   - ✅ **Idempotency tests — Jacob's**, in `src/db/players.test.ts`. Run-twice (four
+     claims, of which *uuid stability* protects slice 1's contracts) and the chunk boundary
+     at 2,500 rows. Mutation-verified: dropping the final partial chunk turns the second
+     one red. Two mutations survive *correctly* — overlapping chunks (idempotent, nothing
+     observable changes) and no chunking at all (2,500 is under the 5,461 wall). Recorded
+     in spec 002 so neither is later mistaken for a hole.
+   - ✅ **`src/sync/run.ts` — the sync's imperative shell.** `fetchPlayerPool()` and
+     `syncPlayers(db, fetchPool, syncedAt)` with decision 6's two aborts. Its pure sibling
+     `sleeper.ts` keeps the Zod and the mappers; **that split is why they are two files.**
+   - ✅ **`scripts/sync-players.ts` — wiring only.** Opens the db, mints one `new Date()`,
+     prints, sets an exit code, closes in a `finally`. No logic. Because the testable half
+     lives in `src/`, no `import.meta.url` guard is needed — a file with no top-level
+     statements cannot run at import time.
+   - ✅ `sync:players` npm script. `tsconfig` now includes `scripts/` and declares
+     `"types": ["node"]`.
+   - ☐ One carried-over test, **Jacob's**: the envelope rejecting a non-object payload
+     (`[]`, `null`, `"oops"`, `42`). Behavior is already correct; nothing pins it.
 5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it. Needs the `dev`
-   npm script too.
+   npm script too. ← *here*
 
 **✓ SETTLED (2026-07-22) — `mapSleeperPlayer` timestamp sourcing: inject.** `syncedAt` is a
 parameter, keeping the mapper pure (functional core; the clock is I/O and belongs to the
@@ -133,19 +150,27 @@ Full rationale in spec 002, decision 6.
 an empty payload and is right to — "zero rows is a catastrophe" is a *policy*, not a
 property of a pure transform. That line is already pinned by a test.
 
-**⟶ OPEN QUESTION (next session) — how the fetch becomes swappable.** Parameter injection
-(`syncPlayers(db, fetchPool, syncedAt)` — the double is visible in the signature, costs an
-argument) vs. `vi.stubGlobal('fetch', ...)` (signature stays clean, the double hides in the
-test file). Decide deliberately, not by habit. **This is the slice's one honest test
-double** — it earns its place by provoking failures the real API cannot be asked for (a
-500, an empty pool), not by "isolating units." Note what is *not* mocked: the database.
-In-memory PGlite is real Postgres, injected, so constraint violations are real ones.
-Settled alongside it: `fetchPlayerPool()` returns the *validated envelope*
-(`Promise<Record<string, unknown>>`) so the script can count entries for decision 6's first
-abort without parsing the payload twice. Values stay `unknown` — trust still starts at the
-strict schema.
+**✓ SETTLED (2026-08-12) — the fetch seam: hand it over.** `syncPlayers(db, fetchPool,
+syncedAt)`, not `vi.stubGlobal`. **The reframe that settled it:** two stacked functions want
+a seam and their subjects differ. `fetchPlayerPool`'s subject is the HTTP call; `syncPlayers`'
+is *policy*. A test of the first wants a fake `Response`; a test of the second wants a plain
+object — and swapping `fetch` to serve the second means stringifying an object so
+`fetchPlayerPool` can parse it back, a round trip to nowhere in every policy test. The
+question was never "which technique," it was "at which level do I cut." **This is the
+slice's one honest test double**, and it earns its place by provoking failures the real API
+cannot be asked for (an empty pool, a malformed RB), not by "isolating units." Note what is
+*not* mocked: the database. In-memory PGlite is real Postgres, injected. `fetchPlayerPool()`
+returns the *validated envelope* (`Promise<Record<string, unknown>>`) so `syncPlayers` can
+count entries for decision 6's first abort; values stay `unknown`, so trust still starts at
+the strict schema. Full rationale + cost in spec 002, decision 7.
 
-**Two hard-won facts about this stack, learned 2026-08-11, that will recur:**
+**⟶ NAMED GAP (open) — `fetchPlayerPool` has no test.** The cost of the line above: the
+function you replace is the function you do not test, so its URL, its `res.ok` check, and
+its envelope parse ship unexercised. Closing it needs its own small file swapping global
+`fetch` — the right tool at the right level. Two assertions owed, listed in spec 002's test
+plan. Not urgent: the real endpoint has now been hit successfully twice.
+
+**Hard-won facts about this stack that will recur:**
 - **Drizzle wraps driver errors.** `err.message` is Drizzle's `Failed query: insert into
   ...`; the Postgres message and its SQLSTATE are on **`err.cause`**. So
   `.rejects.toThrow(/constraint_name/)` fails, and worse, a loose matcher can pass by
@@ -155,6 +180,24 @@ strict schema.
 - **A statement is capped at 65,535 parameters** (a 16-bit field). At 12 params/row that
   is 5,461 rows — measured, not guessed. Crossing it produces `Invalid array length`,
   which names nothing. Hence chunking at 1,000.
+- **PGlite on disk MUST be closed** (`db.$client.close()`). It persists a real Postgres data
+  directory; exiting without closing leaves an unclean shutdown and **the next run hangs
+  forever**. Measured 2026-08-12: run 1 fine, run 2 never returns. The run that breaks is
+  not the run that misbehaved, which is what makes it vicious. Every disk-backed entry point
+  closes in a `finally`.
+- **PGlite's own mkdir is not recursive.** `./.data/players` fails with `ENOENT` when
+  `./.data` does not exist — i.e. on every fresh clone. `createDb` now does
+  `mkdir(path, { recursive: true })` first, which also makes it idempotent (no `EEXIST`).
+- **`lib` and `types` in tsconfig answer different questions.** `lib` = what the JavaScript
+  *language* provides (`Array`, `Promise`, `Map`). `types` = what the *host runtime*
+  provides (`console`, `process`, `fetch`). None of those three are JavaScript. When tsc
+  says `Cannot find name 'fetch'` it suggests adding `dom` to `lib` — **that advice is
+  wrong here**: it would make `document` and `window` typecheck in a program where they do
+  not exist. The fix is `"types": ["node"]`.
+- **`err.cause` is where the truth lives, and this keeps recurring.** Both bugs found on
+  2026-08-12 arrived disguised: a missing directory presented as
+  `Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"`. When this stack's error names the
+  wrong layer, read `.cause` before believing it.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each

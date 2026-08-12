@@ -21,9 +21,20 @@
     "noEmit": true,
 
     /* Don't deep type-check dependencies' own .d.ts files. */
-    "skipLibCheck": true
+    "skipLibCheck": true,
+
+    /* Host-environment globals. `lib` above says what the JS LANGUAGE provides
+       (Array, Promise, Map); this says what the RUNTIME provides. `console`,
+       `process`, and `fetch` are none of them JavaScript - they are Node's
+       contribution, and without this line tsc cannot see them.
+       NOT the "add dom to lib" that the error message suggests: that would make
+       `document` and `window` typecheck in a program where they do not exist. */
+    "types": ["node"]
   },
 
-  /* Type-check everything under src/ (source + co-located *.test.ts). */
-  "include": ["src"]
+  /* Type-check src/ (source + co-located *.test.ts) and the entry points in
+     scripts/. The scripts are thin, but a wrong import path or a misused
+     createDb argument should be a tsc error, not a crash partway through a
+     14.6MB sync. */
+  "include": ["src", "scripts"]
 }
