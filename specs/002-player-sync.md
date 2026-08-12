@@ -1,7 +1,8 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (2026-08-12)** — **steps 1–4 DONE**, step 5 (the HTTP layer) is all
-that remains. 34 tests green, `tsc` clean. **The network is no longer untouched:**
+**Status:** **In progress (2026-08-12)** — **steps 1–4 DONE, nothing owed**, step 5 (the HTTP
+layer) is all that remains. 38 tests green, `tsc` clean. **The network is no longer
+untouched:**
 `npm run sync:players` has been run twice against the live Sleeper API, writing **4,038 rows**
 (QB=474, RB=928, TE=845, WR=1791) from 12,200 entries. Requirement 1 of the Definition of
 Done below is **met and demonstrated**.
@@ -21,8 +22,12 @@ constant. **Nothing is open**: the original seven decisions (2026-07-15), decisi
 DECIDE** blocks are kept rather than deleted: the question is the context for the answer, and
 a decision without its alternatives is just a rule.
 
-**Resume at:** step 5 — `src/http/players.ts` and the `dev` npm script. One small test is
-still owed and it is Jacob's: the envelope rejecting a non-object payload (below).
+**Decision 8 (2026-08-12) settles the read path** — the factory, the `?team=` shape check,
+the row order, and what crosses `serialize()` — so step 5 is unblocked from the top.
+
+**Resume at:** step 5, first code chunk — the query Zod schema and `findPlayers(db, filters)`
+in `src/db/players.ts`, next to `upsertPlayers`. The SQL for a *conditional* `WHERE` is the
+new thing to read there; the route and the `dev` script follow it.
 
 **Two bugs found by the first real runs, both now fixed and both in the persistence
 lifecycle rather than the sync logic** — worth recording because neither could have been
@@ -512,6 +517,85 @@ slice cheaper.
 This is free *because of decision 0*: the enum `QB|RB|WR|TE` is a complete description
 of the column, so rejecting `ZZ` can never reject a row that legitimately exists.
 
+⟶ **YOU DECIDE (8) — the read path.** *(Four questions, settled in one sitting at the top
+of step 5, 2026-08-12: how the handler gets a database, what the query contract accepts,
+what order rows come back in, and what crosses the serializer.)*
+
+**8.1 — How does the handler get `db`?**
+
+✓ **DECIDED: a factory, `createPlayersApp(db)`.** It makes this slice **three-of-three** on
+injection — `db` (decision 4), `syncedAt` (decision 5), `fetchPool` (decision 7) — so the
+dependency is visible in the type signature rather than hidden in a test file. A test builds
+in-memory PGlite, hands it over, and calls `app.request('/players?position=RB')`: Hono's app
+*is* a fetch handler, so there is no port, no `listen`, and no HTTP client. The alternative,
+a `db` opened at module scope, is **I/O at import time** — what decision 7's "importable
+without running" bought and this would spend.
+
+**8.2 — How strictly is `?team=` validated?**
+
+**Measured 2026-08-12** against the 4,038-row table: **33 distinct values — 32 teams plus
+`NULL`** — and every one matches `/^[A-Z]{2,3}$/`. Note that Sleeper writes **`WAS`** (not
+`WSH`) and **`JAX`** (not `JAC`).
+
+✓ **DECIDED: a shape check, `z.string().regex(/^[A-Z]{2,3}$/)`, lowercase rejected rather
+than normalized** — upcasing `?team=dal` silently repairs a query the client got wrong.
+
+*Why:* `position` earns its `400` because `POSITIONS` is a **complete description of the
+column** — the `CHECK` and the filter guarantee it — so "invalid value" and "cannot match a
+row" are one sentence. Nothing constrains `team`: it holds whatever Sleeper sent, so a
+hand-written list would be a **belief about a third party's data**, and one wrong entry
+(`WSH` for `WAS`) would hide 30 real players behind a confidently false `400`. The regex
+constrains the *shape*, which outlives the *set* — STL→LA→LAR, SD→LAC, OAK→LV changed the
+letters, never the length.
+
+*What it costs:* `?team=ZZZ` still returns `200 []`, the silent lie this spec refused for
+`?position=ZZ`. Accepted — at this layer the honest fix does not exist, and the regex claims
+nothing it cannot back up.
+
+**The rule worth keeping:** a validator checks the **request**; the database answers
+**existence**. Never let a validator read the database. Slice 2 is the apparent exception
+that proves it: a `POST` naming a nonexistent `playerId` *is* checked against the database,
+but as a **`422`** in the handler, because for a *mutation* non-existence is a rule being
+violated. For a filter on a list endpoint it is just the answer.
+
+**8.3 — What order do rows come back in?**
+
+✓ **DECIDED: `ORDER BY full_name, sleeper_id`.** `LIMIT` without `ORDER BY` is
+**nondeterministic** — Postgres returns rows in whatever order the plan produces and changes
+its mind when the plan changes, so `?limit=20` means *some* 20 rows. The tiebreak makes the
+order **total**: duplicate full names exist in the NFL, and a tie reintroduces the same
+nondeterminism at a scale small enough to flake a test. *Cost:* a sort over ~4,030 unindexed
+rows — free at this size; when it stops being free, the answer is an index on
+`(full_name, sleeper_id)`.
+
+**8.4 — What crosses `serialize()`?**
+
+✓ **DECIDED: 11 fields out** — `id`, `firstName`, `lastName`, `fullName`, `position`, `team`,
+`fantasyPositions`, `yearsExp`, `status`, `injuryStatus`, `active`. **Withheld: `syncedAt`
+and `sleeperId`.**
+
+*Why:* `syncedAt` answers a question about **our infrastructure** — when our sync last
+touched the row — not about a football player. `sleeperId` is the thing decision 1 spent a
+surrogate key to contain ("Sleeper's IDs stop at the mirror table"), and publishing it
+re-creates that coupling at the layer where it is hardest to remove: a client keying on it
+is a promise you cannot take back. The asymmetry settles both — **adding** a field later is
+backwards-compatible, **removing** one breaks clients, so start narrow.
+
+*What it costs:* checking a `curl` response against Sleeper's own site needs a database
+lookup for the `sleeper_id` first. Accepted.
+
+`serialize()` renames nothing today — Drizzle already hands back camelCase — so it is a
+**picking** function. Its value is that the contract has somewhere to live *before* the
+shapes diverge, which they will the first time a response carries a computed field.
+
+**NAMED GAP (opened 2026-08-12 by 8.2) — `?team=` cannot reach free agents.** **3,044 of
+the 4,038 rows have `team: NULL`** — 75% of the table — and **no value of `?team=` selects
+them.** `WHERE team = 'X'` is never true for a NULL, and neither is `WHERE team = NULL`:
+comparing to NULL yields **UNKNOWN**, not true, which is why SQL needs `IS NULL` as separate
+syntax. Reaching those rows requires a sentinel (`?team=none`) or a separate parameter
+(`?freeAgent=true`), and neither is in the Definition of Done. Recorded here so that slice 2
+— whose entire subject is free agency — finds it written down rather than rediscovering it.
+
 ## N — Norms
 - **No `as` casts at the boundary.** Sleeper's response gets a Zod schema. A type
   assertion is a lie to the compiler with zero runtime enforcement — if Sleeper renames
@@ -555,11 +639,18 @@ Added 2026-08-11 by the pure pipeline (`mapSleeperPayload`), all green:
       would satisfy `toEqual` and is exactly what this must catch)
 - [x] Pipeline: an empty payload → `[]`, **not** an error. Whether the *sync* tolerates
       that is decision 6, below — a pure transform has no business deciding it
-- [ ] Envelope: a payload that is not an object (`[]`, `null`, `"oops"`, `42`) → rejected.
-      **The behavior is already correct** — `z.record` accepts only plain objects, checked
-      by hand 2026-08-11 — but nothing pins it, so a later loosening of the envelope would
-      pass silently. One `toThrow` test against `mapSleeperPayload`; needs no fetch double,
-      so decision 7's deferral does **not** block it
+- [x] Envelope: a payload that is not an object (`[]`, `null`, `"oops"`, `42`) → rejected
+      — `src/sync/sleeper.test.ts`, written 2026-08-12 as an `it.each`. Asserts
+      **`toThrow(z.ZodError)`, not a message match**: `ZodError.message` is
+      `JSON.stringify(issues, null, 2)`, so a regex over it pins Zod's *formatting* rather
+      than its behavior. Same lesson as the `CHECK` test's `err.cause` — assert on
+      structure, never on rendered prose. The class is exact here because the envelope holds
+      this function's **only** `.parse()`; everything else is `safeParse`.
+      **Verified by mutation 2026-08-12:** replacing the parse with
+      `payload as Record<string, unknown>` turns all four red. That the mutation *needs* an
+      `as` cast to compile is itself the point — `.parse()` is doing double duty as runtime
+      check and type narrowing, and deleting it forces the lie the Norms forbid. A bare
+      `toThrow()` would have left `null` green on an unrelated `TypeError`.
 
 **NAMED GAP (opened 2026-08-12 by decision 7) — `fetchPlayerPool` has no test.** Parameter
 injection replaces it in every `syncPlayers` test, so its URL, its `res.ok` check, and its

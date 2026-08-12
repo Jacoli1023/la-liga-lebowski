@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { z } from "zod";
+
 import {
   sleeperPlayerSchema,
   mapSleeperPlayer,
@@ -129,5 +131,9 @@ describe("mapSleeperPayload - the whole pure pipeline", () => {
 
   it("returns an empty array for an empty payload", () => {
     expect(mapSleeperPayload({}, SYNCED_AT)).toEqual([]);
+  });
+
+  it.each([[[]], [null], ["oops"], [42]])("rejects %o - non-object payload", (payload) => {
+    expect(() => mapSleeperPayload(payload, SYNCED_AT)).toThrow(z.ZodError);
   });
 });

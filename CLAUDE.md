@@ -47,15 +47,24 @@ assume competence everywhere else.
 ---
 
 ## Current state (2026-08-12, end of session)
-**Vertical slices. Slice 0 (spec 002): steps 1–4 DONE. The sync runs end to end against the
-real Sleeper API and is idempotent in production, not just in tests. 34 tests green, `tsc`
-clean. Only step 5 — the HTTP layer — remains.**
+**Vertical slices. Slice 0 (spec 002): steps 1–4 DONE and nothing owed. The sync runs end to
+end against the real Sleeper API and is idempotent in production, not just in tests. 38 tests
+green, `tsc` clean. Only step 5 — the HTTP layer — remains, and every decision it needs is
+already settled.**
 
-**⟶ RESUME HERE:** step 5, `src/http/players.ts` — Hono, `zValidator`, serialize, then
-`curl` it. Needs the `dev` npm script. That is the last thing between this slice and its
-Definition of Done. **One small test is still owed and it is Jacob's:** the envelope
-rejecting a non-object payload (`[]`, `null`, `"oops"`, `42`) — one `toThrow` against
-`mapSleeperPayload`, no fetch double needed. The behavior is already correct; nothing pins it.
+**⟶ RESUME HERE:** step 5, first code chunk — `findPlayers(db, filters)` in
+`src/db/players.ts`, beside `upsertPlayers`. **Decision 8 in spec 002 settles the whole read
+path** (2026-08-12): `createPlayersApp(db)` factory injection, `?team=` validated as a
+`/^[A-Z]{2,3}$/` **shape** check rather than a team list, `ORDER BY full_name, sleeper_id`,
+and a response of 11 fields with `syncedAt` and `sleeperId` withheld. The new thing to read
+is the SQL Drizzle generates for a **conditional** `WHERE` — the first place in this project
+where the ORM stops being a thin wrapper. Then the route, then `scripts/dev.ts` + the `dev`
+npm script, then `curl`.
+
+**Two rules from decision 8 worth carrying past this slice:** *a validator checks the
+request; the database answers existence — never let a validator read the database* (slice
+2's `422` is the apparent exception that proves it), and *`LIMIT` without `ORDER BY` is
+nondeterministic*.
 
 **Proven end to end 2026-08-12** by two consecutive real runs of `npm run sync:players`:
 - **4,038 rows** written from 12,200 entries. QB=474, RB=928, TE=845, WR=1791.
@@ -122,10 +131,14 @@ this league can never roster. It also forces the pipeline order: **filter, then 
      statements cannot run at import time.
    - ✅ `sync:players` npm script. `tsconfig` now includes `scripts/` and declares
      `"types": ["node"]`.
-   - ☐ One carried-over test, **Jacob's**: the envelope rejecting a non-object payload
-     (`[]`, `null`, `"oops"`, `42`). Behavior is already correct; nothing pins it.
-5. `src/http/players.ts` — Hono, `zValidator`, serialize, then `curl` it. Needs the `dev`
-   npm script too. ← *here*
+   - ✅ The envelope test, **Jacob's** — `[]`, `null`, `"oops"`, `42` all rejected, as an
+     `it.each`. Asserts `toThrow(z.ZodError)` rather than matching the message, and is
+     mutation-verified. See the `ZodError` fact below for why that distinction mattered.
+5. **The HTTP layer**, with decision 8 already settling its four shape questions. Order:
+   `findPlayers(db, filters)` in `src/db/players.ts` (the SQL) → the query Zod schema and
+   route in `src/http/players.ts` → `scripts/dev.ts` and the `dev` npm script → `curl`. Two
+   tests owed and both **Jacob's**: `GET /players` returns rows, `?position=ZZ` is a `400`.
+   ← *here*
 
 **✓ SETTLED (2026-07-22) — `mapSleeperPlayer` timestamp sourcing: inject.** `syncedAt` is a
 parameter, keeping the mapper pure (functional core; the clock is I/O and belongs to the
@@ -198,6 +211,15 @@ plan. Not urgent: the real endpoint has now been hit successfully twice.
   2026-08-12 arrived disguised: a missing directory presented as
   `Failed query: CREATE SCHEMA IF NOT EXISTS "drizzle"`. When this stack's error names the
   wrong layer, read `.cause` before believing it.
+- **A `ZodError`'s `message` is `JSON.stringify(issues, null, 2)`** — pretty-printed JSON,
+  not prose. A regex over it pins Zod's *formatting* rather than its behavior. Assert
+  `toThrow(z.ZodError)`, or read `err.issues` (`code`, `expected`, `path`). Same shape as the
+  `err.cause` trap above: when an error carries structured data, the message is a rendering
+  and the structure is the API.
+- **`.parse()` does double duty — runtime check *and* type narrowing** (`unknown` →
+  `Record<string, unknown>`). So deleting a parse to mutation-test it will not compile
+  without an `as` cast, which is the Norms' "`as` is not validation" rule arriving from the
+  other direction: the cast asserts the shape, the parse proves it.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each
