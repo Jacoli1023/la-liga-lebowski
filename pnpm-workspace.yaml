@@ -1,0 +1,14 @@
+# pnpm settings. Not a workspace/monorepo declaration - as of pnpm 11 this file
+# is also where per-project pnpm configuration lives, having moved out of the
+# "pnpm" field in package.json.
+
+# pnpm blocks dependency install/postinstall scripts by default: a postinstall is
+# arbitrary code from a third party running on your machine at install time, which
+# is the supply-chain attack everyone worries about. Anything listed here is an
+# explicit exception, and the answer must be recorded one way or the other -
+# pnpm fails the install while a dependency's build is merely unanswered.
+#
+# esbuild's postinstall resolves the prebuilt native binary for this platform.
+# Vitest bundles test files with esbuild, so without it the suite cannot run.
+allowBuilds:
+  esbuild: true

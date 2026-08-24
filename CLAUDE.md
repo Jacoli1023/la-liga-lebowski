@@ -66,7 +66,7 @@ request; the database answers existence — never let a validator read the datab
 2's `422` is the apparent exception that proves it), and *`LIMIT` without `ORDER BY` is
 nondeterministic*.
 
-**Proven end to end 2026-08-12** by two consecutive real runs of `npm run sync:players`:
+**Proven end to end 2026-08-12** by two consecutive real runs of `pnpm sync:players`:
 - **4,038 rows** written from 12,200 entries. QB=474, RB=928, TE=845, WR=1791.
 - **One distinct `synced_at` across all 4,038 rows.** This is the strongest evidence in the
   project: it proves decision 5's "one run = one timestamp" *and* that the second run
@@ -240,11 +240,13 @@ layer, not shipping speed. Revisit for slice 1, once the layers are familiar.
 trap is over-structuring; tool-shopping is that trap in disguise.
 
 ## Commands
-- `npm test` / `npm run test:watch` — Vitest
-- `npm run typecheck` — `tsc --noEmit`
-- `npm run db:generate` — generate a Drizzle migration by diffing `schema.ts`
-- (to be added in slice 0) `npm run sync:players` — pull the Sleeper player pool
-- (to be added in slice 0) `npm run dev` — start the Hono server
+**Package manager is pnpm** (with mise pinning node + pnpm; see `mise.toml`). Never
+`npm install` here — it would write a second lockfile alongside `pnpm-lock.yaml`.
+- `pnpm test` / `pnpm test:watch` — Vitest
+- `pnpm typecheck` — `tsc --noEmit`
+- `pnpm db:generate` — generate a Drizzle migration by diffing `schema.ts`
+- `pnpm sync:players` — pull the Sleeper player pool
+- (to be added in slice 0, step 5) `pnpm dev` — start the Hono server
 
 ---
 

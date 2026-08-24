@@ -2,7 +2,7 @@ import { createDb, type Db } from "../src/db/client.js";
 import { fetchPlayerPool, syncPlayers } from "../src/sync/run.js";
 
 /**
- * Entry point for `npm run sync:players`. WIRING ONLY - no logic lives here.
+ * Entry point for `pnpm sync:players`. WIRING ONLY - no logic lives here.
  *
  * Four jobs, all of them things a unit test has no opinion about: pick where
  * the database file goes, mint the run's clock, print what happened, and set an

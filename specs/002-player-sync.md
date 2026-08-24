@@ -3,7 +3,7 @@
 **Status:** **In progress (2026-08-12)** — **steps 1–4 DONE, nothing owed**, step 5 (the HTTP
 layer) is all that remains. 38 tests green, `tsc` clean. **The network is no longer
 untouched:**
-`npm run sync:players` has been run twice against the live Sleeper API, writing **4,038 rows**
+`pnpm sync:players` has been run twice against the live Sleeper API, writing **4,038 rows**
 (QB=474, RB=928, TE=845, WR=1791) from 12,200 entries. Requirement 1 of the Definition of
 Done below is **met and demonstrated**.
 
@@ -58,9 +58,9 @@ stand on.
 ---
 
 ## R — Requirements / Definition of Done
-1. `npm run sync:players` fetches the Sleeper player pool, validates it, maps it, and
+1. `pnpm sync:players` fetches the Sleeper player pool, validates it, maps it, and
    upserts it into a local PGlite database. Running it twice produces the same result.
-2. `npm run dev` starts a Hono server.
+2. `pnpm dev` starts a Hono server.
 3. `curl 'localhost:3000/players?position=RB&team=DAL'` returns real NFL running backs
    from *your* database as JSON.
 
