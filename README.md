@@ -2,9 +2,9 @@
 
 A configurable NFL fantasy-football simulator that implements a custom, real-world
 league ruleset — salary cap, multi-year contracts, blind-bid free agency, keepers,
-holdouts, franchise/transition tags, and an annual season rollover. The MVP is a
-terminal application covering drafting, roster management, and player acquisition,
-built to eventually run a real friend group's league.
+holdouts, franchise/transition tags, and an annual season rollover. The MVP is an **HTTP
+API** covering drafting, roster management, and player acquisition, built to eventually run
+a real friend group's league. Every increment is demoable with `curl`.
 
 ## Why this project exists
 
@@ -15,8 +15,11 @@ from the ground up — deliberately, one layer at a time:
   entities and invariants.
 - **Architecture** — enforcing strict boundaries so the business logic doesn't leak
   into the interface or the database.
-- **Persistence** — starting in-memory, then moving to SQLite, then Postgres, so I
-  understand each layer before depending on it.
+- **Persistence** — real Postgres from day one via PGlite (Postgres compiled to WASM,
+  running in-process), with an ORM chosen specifically so I read the SQL rather than hide
+  from it.
+- **HTTP** — status codes, validation at the boundary, and what belongs in a route handler
+  versus behind it.
 - **Test-driven development** — every rule is pinned by a failing test before it's
   implemented.
 
@@ -25,19 +28,42 @@ explain.
 
 ## Architecture
 
-The project follows a **ports-and-adapters (hexagonal)** structure. The domain core
-is pure and has no idea what's driving it:
+**Functional core, imperative shell.** All *calculations and rules* are pure functions over
+plain data; all I/O lives at the edges. An earlier version of this README described a strict
+ports-and-adapters layout with a rule that the domain could never touch I/O. That was a good
+instinct applied too rigidly — it produced code that was beautiful and could not leave
+memory. This is the correction.
 
 ```
 src/
-├── domain/       # Pure business logic: entities + rules. No I/O, no framework, no DB.
-├── cli/          # Terminal adapter — one way to drive the core.
-└── persistence/  # Storage adapter — swappable (in-memory → SQLite → Postgres).
+├── domain/   # Pure: rules, cap math, position unions. No I/O, ever.
+├── db/       # Schema, migrations, and queries (Drizzle over PGlite).
+├── sync/     # The Sleeper mirror: Zod validation + mappers, and its imperative shell.
+└── http/     # Hono routes. Load, delegate, serialize - no rules computed here.
 ```
 
-The terminal and the database are just adapters plugged into the core. New interfaces
-or storage backends are added **without modifying the domain logic** — the whole point
-of the boundary.
+**No rule is ever computed inside a route handler or a query.** The handler loads, calls the
+core, and serializes. If cap math shows up in an HTTP handler, that's a bug.
+
+### The four shapes
+
+```
+Sleeper JSON  →[validate + map]→  players table  →[load]→  Domain objects  →[serialize]→  API JSON
+  theirs                            my mirror                 my rules                    my contract
+```
+
+Four distinct shapes, three translations, each one code I own. Sleeper's field names and IDs
+stop at the mirror table; the database's column names stop at `serialize()`. If Sleeper
+renames a field, exactly one mapper breaks — not the domain, and not the API contract.
+
+### Where invariants live
+
+| Kind of rule | Enforced by |
+| --- | --- |
+| Uniqueness, foreign keys, `NOT NULL`, `CHECK` | **Postgres.** Declarative, atomic, race-proof. |
+| Aggregate rules (committed cap ≤ league cap) | **My code, inside a transaction.** No column constraint can express a SUM across rows. |
+
+Knowing which is which turned out to be the central skill of this phase.
 
 ### Domain model
 
@@ -88,26 +114,49 @@ book:
 
 ## Status & roadmap
 
-**Current:** The in-memory domain core is under active TDD. The salary-cap calculation
-is done — `Team.calcCapUsed()` computes status-weighted, floor-rounded committed cap
-across a team's contracts.
+Work is organized into **vertical slices**: each one is narrow in scope, complete in depth,
+and demoable with `curl`. If it can't be demoed, it isn't a slice. No table, column, or
+endpoint gets added until a slice needs it.
 
-**Next up:**
+**Current — Slice 0, the walking skeleton:** Sleeper API → Zod → Drizzle → PGlite →
+`GET /players`. Code complete; the end-to-end demo against freshly synced data is the last
+step. The sync mirrors only the ~4,000 QB/RB/WR/TE rows out of Sleeper's 12,200, because the
+league is offense-only — which is what lets the validation schema be strict.
 
-- Cap-legality invariant (`committed cap ≤ league cap`) and the `League` entity
-- Dead-money handling for dropped players
-- Blind-bid free agency and player acquisition
-- Keepers, holdout resolution, and franchise/transition tags
-- The full season-rollover cascade
-- Persistence beyond in-memory (SQLite → Postgres)
-- The terminal (CLI) adapter
+Proven so far: two consecutive real syncs wrote **4,038 rows from 12,200 entries**, all
+sharing a single `synced_at` — idempotency at full scale against the live feed, not a
+fixture.
+
+**The slices ahead:**
+
+| | Slice | Delivers |
+| --- | --- | --- |
+| 1 | Read the cap | `leagues`, `teams`, `contracts`; `GET /teams/:id/cap` |
+| 2 | First mutation | `POST /teams/:id/contracts` — sign a free agent, `422` if it breaks the cap. **The transaction boundary appears here.** |
+| 3 | Move a player | `PATCH /contracts/:id` → IR / practice squad, with capacity limits |
+| 4 | Drop a player | `DROPPED` status and the dead-money table |
+
+Deferred until their slice arrives: holdouts, franchise/transition tags, the March-1
+rollover cascade, trades, blind-bid periods, scoring, any UI, real Postgres, auth.
 
 ## Tech stack
 
-- **TypeScript / Node.js**
-- **Vitest** for testing, worked red-green-refactor
-- No external APIs in the MVP — the player pool is static seed data. Real NFL stat
-  integration is a deliberate later module, not a dependency.
+- **TypeScript / Node.js** (pnpm, with mise pinning the toolchain)
+- **PGlite** — real Postgres compiled to WASM, running in-process. No Docker, no server, no
+  connection string, but real Postgres semantics rather than SQLite pretending. Swapping in
+  a networked Postgres later leaves the schema and queries unchanged.
+- **Drizzle** — a SQL-first ORM whose schema is TypeScript and which generates SQL I can
+  read. Chosen so I learn SQL, not a query DSL.
+- **Hono** — web-standards HTTP framework. An app is a fetch handler, so endpoint tests need
+  no port and no HTTP client.
+- **Zod** — runtime validation at every external boundary. A type assertion is a lie to the
+  compiler with zero runtime enforcement; every boundary gets a schema instead.
+- **Vitest** — red-green-refactor.
+
+The player pool comes from the **Sleeper API**, mirrored into a local table by an idempotent
+sync. An earlier draft of this README planned static seed data; mirroring a real third-party
+feed turned out to be the more instructive version, and the anti-corruption boundary it
+forced is now one of the load-bearing ideas in the codebase.
 
 ## How it's built
 

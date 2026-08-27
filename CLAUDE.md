@@ -46,20 +46,27 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-08-12, end of session)
-**Vertical slices. Slice 0 (spec 002): steps 1–4 DONE and nothing owed. The sync runs end to
-end against the real Sleeper API and is idempotent in production, not just in tests. 38 tests
-green, `tsc` clean. Only step 5 — the HTTP layer — remains, and every decision it needs is
-already settled.**
+## Current state (2026-08-27, end of session)
+**Vertical slices. Slice 0 (spec 002): steps 1–5 are CODE COMPLETE. The sync runs end to end
+against the real Sleeper API and is idempotent in production; the HTTP layer is written,
+tested, and lifecycle-verified. 40 tests green, `tsc` clean.**
 
-**⟶ RESUME HERE:** step 5, first code chunk — `findPlayers(db, filters)` in
-`src/db/players.ts`, beside `upsertPlayers`. **Decision 8 in spec 002 settles the whole read
-path** (2026-08-12): `createPlayersApp(db)` factory injection, `?team=` validated as a
-`/^[A-Z]{2,3}$/` **shape** check rather than a team list, `ORDER BY full_name, sleeper_id`,
-and a response of 11 fields with `syncedAt` and `sleeperId` withheld. The new thing to read
-is the SQL Drizzle generates for a **conditional** `WHERE` — the first place in this project
-where the ORM stops being a thin wrapper. Then the route, then `scripts/dev.ts` + the `dev`
-npm script, then `curl`.
+**⟶ RESUME HERE:** the slice-0 demo — the one thing left, and deliberately left for Jacob
+to run himself:
+
+```
+pnpm sync:players
+pnpm dev
+curl "http://localhost:3000/players?position=RB&team=DAL&limit=5"
+```
+
+Every layer is verified in isolation: `GET /players` against in-memory PGlite in the test
+suite, and against a real disk-backed database in a scripted start/curl/SIGINT/restart cycle
+(2026-08-27). What has **not** happened yet is the two together — 4,038 real Sleeper rows
+served over HTTP. That is the whole demo, and it closes the slice.
+
+**Also owed, both prose, both small:** record the `serialize` mutation in spec 002's test
+plan next to the other three, and close or re-park the named `fetchPlayerPool` gap.
 
 **Two rules from decision 8 worth carrying past this slice:** *a validator checks the
 request; the database answers existence — never let a validator read the database* (slice
@@ -134,11 +141,26 @@ this league can never roster. It also forces the pipeline order: **filter, then 
    - ✅ The envelope test, **Jacob's** — `[]`, `null`, `"oops"`, `42` all rejected, as an
      `it.each`. Asserts `toThrow(z.ZodError)` rather than matching the message, and is
      mutation-verified. See the `ZodError` fact below for why that distinction mattered.
-5. **The HTTP layer**, with decision 8 already settling its four shape questions. Order:
-   `findPlayers(db, filters)` in `src/db/players.ts` (the SQL) → the query Zod schema and
-   route in `src/http/players.ts` → `scripts/dev.ts` and the `dev` npm script → `curl`. Two
-   tests owed and both **Jacob's**: `GET /players` returns rows, `?position=ZZ` is a `400`.
-   ← *here*
+5. ✅ **The HTTP layer** — written 2026-08-27, with decision 8 having settled its four
+   shape questions before any code was written. That front-loading worked: no design
+   question came up mid-implementation.
+   - ✅ **`findPlayers(db, filters)`** in `src/db/players.ts`. The first query in the project
+     whose SQL *text* — not just its parameters — varies with runtime input. Conditions are
+     collected into an array and combined with a single `and(...)`, because **Drizzle's
+     `.where()` is a setter, not an accumulator**: a second `.where()` REPLACES the first and
+     silently drops a filter (measured 2026-08-26).
+   - ✅ **`src/http/players.ts`** — `querySchema` (enum derived from `POSITIONS`, `team` as a
+     shape regex, `z.coerce.number()` for `limit`), `PlayerResponse`, `serialize`, and the
+     `createPlayersApp(db)` factory.
+   - ✅ **Both owed tests — Jacob's**, in `src/http/players.test.ts`. Rows are seeded in
+     reverse-alphabetical order so the `ORDER BY` assertion is a real claim rather than an
+     accident of insertion. **Mutation-verified 2026-08-27:** rewriting `serialize` as
+     `{ ...player }` turns the field-list assertion red — and that mutation *compiles clean*,
+     which is why the assertion has to exist.
+   - ✅ **`scripts/dev.ts` + the `dev` npm script**, with graceful shutdown on `SIGINT` and
+     `SIGTERM`. Verified 2026-08-27 by a scripted start → curl → SIGINT → **restart**, the
+     restart being the run that used to hang.
+   - ⬜ **The `curl` demo against real synced data.** ← *here*
 
 **✓ SETTLED (2026-07-22) — `mapSleeperPlayer` timestamp sourcing: inject.** `syncedAt` is a
 parameter, keeping the mapper pure (functional core; the clock is I/O and belongs to the
@@ -220,6 +242,38 @@ plan. Not urgent: the real endpoint has now been hit successfully twice.
   `Record<string, unknown>`). So deleting a parse to mutation-test it will not compile
   without an `as` cast, which is the Norms' "`as` is not validation" rule arriving from the
   other direction: the cast asserts the shape, the parse proves it.
+
+- **A signal is not an exception, so `finally` never runs.** Ctrl+C sends `SIGINT`, whose
+  default action terminates the process on the spot — nothing is thrown, so nothing unwinds.
+  `scripts/sync-players.ts` gets its `db.$client.close()` for free from a `finally` because
+  it *finishes*; a server does not, and needs `process.on("SIGINT"|"SIGTERM", ...)`.
+  Registering a handler **replaces** the default, so the handler now owns exiting — and if
+  it fails to exit, Ctrl+C is disarmed. Verified 2026-08-27: with the handler, the process
+  ends `code: 0, signal: null` (shut down), not `signal: SIGINT` (killed).
+- **`server.close()` is callback-based, not awaitable.** It returns the `Server`, not a
+  Promise, so `await server.close()` is a no-op that silently reorders your shutdown. Wrap
+  it in `new Promise`. The general shape, worth recognizing by sight: **if a function takes
+  a callback as its last argument, awaiting the function does nothing** — and `await`
+  accepts any value, so TypeScript will not complain.
+- **Types are erased; only code enforces.** `const x: PlayerResponse = row` compiles clean
+  and publishes every extra field, because TypeScript is *structurally* typed. The excess
+  property check fires **only on keys spelled out in a fresh object literal** — so
+  `return { ...player }` also compiles clean and also leaks. The guarantee in `serialize` is
+  therefore the **explicit field list**, not the function boundary and not the return type.
+  An explicit list fails loudly when a field goes missing; a spread fails silently when one
+  is added.
+- **`toEqual` rejects extra properties; `expect.objectContaining` allows them.** So an exact
+  `toEqual` is the leak detector for a response contract — and it takes `unknown` as the
+  actual value, so no cast is needed to use it.
+- **`res.json()` is `unknown` here, not `any`** — a consequence of `"types": ["node"]`.
+  Node's fetch typings return `Promise<unknown>` where the browser DOM lib returns
+  `Promise<any>`. The stricter one is the better one: it refuses indexing until the shape is
+  proven. Assert with `toEqual` rather than reaching for `as`, which in a test that exists to
+  verify a shape would assume the very thing under test.
+- **Query params are always strings.** `?limit=5` arrives as `"5"` — HTTP is text on a wire
+  and has no types. `z.coerce.number()`, never `z.number()`. Measured edges: `""` coerces to
+  `0` and fails `min(1)`; `"abc"` becomes `NaN`; `"20.5"` fails `.int()`. All reject, which
+  is the only acceptable behavior at a boundary.
 
 Data-flow order was chosen over a thinnest-possible-skeleton *deliberately*: nothing is
 demoable until step 5, and that cost is accepted because the goal is understanding each

@@ -689,8 +689,29 @@ is `UNIQUE` — that forces 2,500 *distinct* external keys, and rows can only or
 the input. Drop the constraint and the same assertion passes with 2,499 real players and one
 duplicate. **The schema is doing half the work of the test**, which is the "where invariants
 live" table in CLAUDE.md showing up in practice.
-- [ ] `GET /players` with no filters → returns rows — **step 5**
-- [ ] `GET /players?position=ZZ` → **`400`** (decided above) — **step 5**
+- [x] `GET /players` with no filters → returns rows — `src/http/players.test.ts`, written
+      2026-08-27. Three claims, not one: the count, **the field list**, and the order. Rows
+      are seeded in reverse-alphabetical order so that asserting the order is a real claim
+      about decision 8.3's `ORDER BY` rather than an accident of insertion.
+      **Verified by mutation 2026-08-27:** rewriting `serialize` as `return { ...player }`
+      turns the field-list assertion red — and *only* that assertion. Everything else stays
+      green, because the spread returns all eleven correct fields plus two extra.
+      **The mutation compiles clean**, which is the whole reason this assertion has to
+      exist: TypeScript is structurally typed, and its excess property check fires only on
+      keys spelled out in a fresh object literal, never on a spread. So the type system
+      cannot catch this class of leak and a test must.
+      **Do not relax `toEqual` to `expect.objectContaining` here.** Measured 2026-08-27:
+      `toEqual` rejects an extra property, `objectContaining` accepts it — the swap would
+      look like a harmless tidy-up and would silently delete decision 8.4's enforcement.
+- [x] `GET /players?position=ZZ` → **`400`** (decided above) — written 2026-08-27, and it
+      passes against an **empty database**, which is the point rather than a shortcut:
+      zValidator rejects before the handler runs, so `findPlayers` is never called. If this
+      test ever needs a seeded row, validation has leaked into the handler.
+      Asserts **the status only, never the body** — a `ZodError`'s `message` is
+      `JSON.stringify(issues, null, 2)`, so matching it would pin Zod's formatting rather
+      than our behavior. Same lesson as the envelope test above.
+      **Verified by mutation 2026-08-27:** dropping `z.enum(POSITIONS)` from `querySchema`
+      turns it red.
 
 Added by decision 0 — the filter is now a tested seam, not an implementation detail:
 - [x] `isLeaguePosition`: `QB`/`RB`/`WR`/`TE` → true; `K`/`DEF`/`LB`/`OL` → false
