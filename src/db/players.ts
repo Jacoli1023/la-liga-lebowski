@@ -1,5 +1,5 @@
-import { sql } from "drizzle-orm";
-import { players, type NewPlayer } from "./schema.js";
+import { and, eq, sql, type SQL } from "drizzle-orm";
+import { players, type NewPlayer, type Player } from "./schema.js";
 import type { Db } from "./client.js";
 
 /**
@@ -93,4 +93,112 @@ export async function upsertPlayers(db: Db, rows: NewPlayer[]): Promise<void> {
         },
       });
   }
+}
+
+/**
+ * What the caller may narrow a player search by.
+ *
+ * Both filters are OPTIONAL - absent means "do not narrow by this at all",
+ * which is a different statement from any particular value. `limit` is not
+ * optional: spec 002 decision 8 puts the default (20) and the ceiling (100) in
+ * the query schema at the HTTP boundary, so by the time a value reaches here it
+ * has already been supplied and bounded. This function trusts that and does not
+ * re-decide it - a default in two places is two places to change it.
+ *
+ * The shape is deliberately NOT `Partial<Player>`. These are the filters the
+ * endpoint publishes, not "any column, maybe". Widening it later is a decision,
+ * not an accident.
+ */
+export type PlayerFilters = {
+  position?: string;
+  team?: string;
+  limit: number;
+};
+
+/**
+ * Read players out of the mirror table, narrowed by whichever filters were
+ * given, in a stable order, capped at `limit`.
+ *
+ * This is the first query in the project whose SQL TEXT - not just its
+ * parameters - depends on runtime input. `upsertPlayers` above always emits the
+ * same statement and only varies the values. This one emits a different
+ * statement per filter combination:
+ *
+ *   no filters      select ... from "players"
+ *                   order by "players"."full_name", "players"."sleeper_id"
+ *                   limit $1
+ *
+ *   position only   select ... from "players"
+ *                   where "players"."position" = $1
+ *                   order by ... limit $2
+ *
+ *   both            select ... from "players"
+ *                   where ("players"."position" = $1 and "players"."team" = $2)
+ *                   order by ... limit $3
+ *
+ * Four things to read there:
+ *
+ * The WHERE clause genuinely DISAPPEARS when nothing is filtered. Not
+ * `where true`, not `where 1=1` - absent. Drizzle's `and()` returns `undefined`
+ * for an empty condition list, and `.where(undefined)` emits no clause at all.
+ *
+ * Values never appear in the SQL text. `"RB"` travels separately as $1. That is
+ * a PREPARED STATEMENT: the query's shape is fixed before any user data is
+ * attached, so a parameter can never turn into syntax. It is the structural
+ * reason a hostile `?team=` cannot inject SQL here.
+ *
+ * The placeholder NUMBERS shift with the filter count - notice `limit` is $1,
+ * $2, or $3 depending on how many conditions precede it. Placeholders are
+ * positional and mean nothing but "the Nth value in the array". Build the array
+ * in the wrong order and you filter by the wrong thing, silently.
+ *
+ * `.where()` is called EXACTLY ONCE, and that is load-bearing. In Drizzle a
+ * second `.where()` REPLACES the first rather than ANDing with it - measured
+ * 2026-08-26: chaining `.where(position)` then `.where(team)` emits
+ * `where "players"."team" = $1` and the position filter vanishes with no error.
+ * So the conditions are combined in the array FIRST and handed over together.
+ *
+ * ORDER BY is not cosmetic (decision 8.3). `LIMIT` without it is
+ * nondeterministic - Postgres returns whatever the plan produces and changes
+ * its mind when the plan changes, so `?limit=20` would mean SOME 20 rows.
+ * `full_name` alone is not enough either: duplicate names exist in the NFL, and
+ * a tie puts the nondeterminism back at a scale small enough to flake a test.
+ * `sleeper_id` is UNIQUE, so adding it makes the order TOTAL.
+ *
+ * Returns whole rows, all 13 columns (decision 8.4, option 1). The two the API
+ * withholds - `syncedAt` and `sleeperId` - are dropped by `serialize()` in the
+ * HTTP layer, not here. The repository answers "which rows"; the serializer
+ * answers "which fields".
+ *
+ * TODO(human): implement the body.
+ *
+ * Sketch, so the Drizzle API is not the puzzle:
+ *   1. `const conditions: SQL[] = []`
+ *   2. push `eq(players.position, filters.position)` when position is present,
+ *      and the same for team. Check `!== undefined` rather than truthiness -
+ *      see the question below before you decide that matters.
+ *   3. one chain: `db.select().from(players).where(...).orderBy(...).limit(...)`
+ *      - `.where()` takes `and(...conditions)`
+ *      - `.orderBy()` takes both columns as separate arguments
+ *
+ * Print what you built with `.toSQL()` before you trust it.
+ */
+export async function findPlayers(
+  db: Db,
+  filters: PlayerFilters,
+): Promise<Player[]> {
+  const conditions: SQL[] = [];
+  if (filters.position !== undefined) {
+    conditions.push(eq(players.position, filters.position));
+  }
+  if (filters.team !== undefined) {
+    conditions.push(eq(players.team, filters.team));
+  }
+
+  return db
+    .select()
+    .from(players)
+    .where(and(...conditions))
+    .orderBy(players.fullName, players.sleeperId)
+    .limit(filters.limit);
 }

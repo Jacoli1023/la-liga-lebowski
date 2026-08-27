@@ -48,3 +48,13 @@ export const players = pgTable(
  */
 export type NewPlayer = typeof players.$inferInsert;
 
+/**
+ * The row shape a SELECT from `players` returns - the mirror of NewPlayer above,
+ * and likewise derived from the table rather than hand-written.
+ *
+ * It differs from NewPlayer in exactly one way that matters: nothing here is
+ * optional. NewPlayer lets you omit `id` because Postgres fills it in; a row
+ * that has already been stored HAS one. "What you may write" and "what you get
+ * back" are two different questions, so they get two different types.
+ */
+export type Player = typeof players.$inferSelect;

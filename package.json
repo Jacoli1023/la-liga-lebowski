@@ -8,7 +8,8 @@
     "test:watch": "vitest",
     "typecheck": "tsc",
     "db:generate": "drizzle-kit generate",
-    "sync:players": "tsx scripts/sync-players.ts"
+    "sync:players": "tsx scripts/sync-players.ts",
+    "dev": "tsx scripts/dev.ts"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
