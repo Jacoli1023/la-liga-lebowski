@@ -652,14 +652,13 @@ Added 2026-08-11 by the pure pipeline (`mapSleeperPayload`), all green:
       check and type narrowing, and deleting it forces the lie the Norms forbid. A bare
       `toThrow()` would have left `null` green on an unrelated `TypeError`.
 
-**NAMED GAP (opened 2026-08-12 by decision 7) — `fetchPlayerPool` has no test.** Parameter
-injection replaces it in every `syncPlayers` test, so its URL, its `res.ok` check, and its
+Parameter injection replaces it in every `syncPlayers` test, so its URL, its `res.ok` check, and its
 envelope parse are never executed by the suite. Closing it needs its own file swapping global
 `fetch`, and buys two assertions worth having:
-- [ ] `fetchPlayerPool`: a **500** response → aborts with a message naming the status. The
+- [x] `fetchPlayerPool`: a **500** response → aborts with a message naming the status. The
       one that actually matters — `fetch` does not throw on a 500, so this is the check most
       easily left out, and leaving it out turns an outage into an unreadable JSON parse error
-- [ ] `fetchPlayerPool`: a **200 carrying a non-object body** → aborts at the envelope
+- [x] `fetchPlayerPool`: a **200 carrying a non-object body** → aborts at the envelope
 - [x] Sync: run twice → same row count, same data (idempotency) — `src/db/players.test.ts`,
       written 2026-08-12. Tested at the `upsertPlayers` level rather than the script level:
       that is where the upsert actually is, and it needs no network double at all. Four
