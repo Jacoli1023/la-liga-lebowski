@@ -1,11 +1,19 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
-**Status:** **In progress (2026-08-12)** — **steps 1–4 DONE, nothing owed**, step 5 (the HTTP
-layer) is all that remains. 38 tests green, `tsc` clean. **The network is no longer
-untouched:**
-`pnpm sync:players` has been run twice against the live Sleeper API, writing **4,038 rows**
-(QB=474, RB=928, TE=845, WR=1791) from 12,200 entries. Requirement 1 of the Definition of
-Done below is **met and demonstrated**.
+**Status:** **COMPLETE (2026-09-02).** All three requirements in the Definition of Done
+are met and demonstrated, and every box in the concepts checklist at the foot of this file
+is ticked. 44 tests green, `tsc` clean.
+
+**The demo that closed the slice (2026-09-02):** `pnpm sync:players`, then `pnpm dev`, then
+`curl 'localhost:3000/players?position=RB&team=DAL&limit=5'` — real Sleeper rows, out of
+our own database, over HTTP. Every layer had been verified in isolation well before this:
+`GET /players` against in-memory PGlite in the suite, and a disk-backed start/curl/SIGINT/
+restart cycle on 2026-08-27. What the demo added is the only thing those could not — all
+four shapes running end to end in one process, against the real feed.
+
+**The network was proven earlier (2026-08-12):** `pnpm sync:players` run twice against the
+live Sleeper API, writing **4,038 rows** (QB=474, RB=928, TE=845, WR=1791) from 12,200
+entries.
 
 **The measurement worth keeping from that run:** after the second run, the table held
 **one distinct `synced_at` across all 4,038 rows**. That is decision 5's "one run = one
@@ -23,11 +31,20 @@ DECIDE** blocks are kept rather than deleted: the question is the context for th
 a decision without its alternatives is just a rule.
 
 **Decision 8 (2026-08-12) settles the read path** — the factory, the `?team=` shape check,
-the row order, and what crosses `serialize()` — so step 5 is unblocked from the top.
+the row order, and what crosses `serialize()` — which unblocked step 5 from the top.
+No shape question reopened during implementation, which is the case for front-loading them.
 
-**Resume at:** step 5, first code chunk — the query Zod schema and `findPlayers(db, filters)`
-in `src/db/players.ts`, next to `upsertPlayers`. The SQL for a *conditional* `WHERE` is the
-new thing to read there; the route and the `dev` script follow it.
+**Nothing is owed by this spec.** Slice 0 is closed; work continues in slice 1 (`leagues`,
+`teams`, `contracts`, and `GET /teams/:id/cap`), where spec 001's pure core finally gets a
+caller. **Two rules from this slice carry forward:** *a validator checks the request; the
+database answers existence — never let a validator read the database* (slice 2's `422` is
+the apparent exception that proves it), and *`LIMIT` without `ORDER BY` is nondeterministic*.
+
+**One thing slice 1 inherits directly:** `contracts` will foreign-key to `players.id`, the
+surrogate uuid — never to `sleeper_id`. That is what keeps Sleeper's identifiers stopped at
+the mirror table instead of propagating into league history, and it is why the upsert's
+uuid-stability assertion exists. Pair it with `onDelete: RESTRICT` (landmine 2 in CLAUDE.md):
+a third-party feed must never be able to destroy league history.
 
 **Two bugs found by the first real runs, both now fixed and both in the persistence
 lifecycle rather than the sync logic** — worth recording because neither could have been
@@ -759,16 +776,86 @@ the price of every DB-touching test file from here on.
 This slice exists as much to teach you the layer as to ship the feature. By the end,
 without looking anything up, you should be able to explain:
 
-- [ ] What a **migration** is, and why the schema file alone isn't enough
-- [ ] What **upsert** means and why it makes the sync idempotent
-- [ ] The difference between a **natural key** and a **surrogate key** (you'll have
+**All nine verified by oral quiz, 2026-09-02.** Six were clean. The three that needed
+correcting are annotated below, because the correction is the part worth keeping.
+
+- [x] What a **migration** is, and why the schema file alone isn't enough
+      — `schema.ts` is a *compile-time* artifact, the migration a *runtime* one, and `tsc`
+      cannot see across that line: delete `drizzle/` and typecheck still passes, while the
+      first query fails with `relation "players" does not exist`. The name is the other
+      half — migrations are an **ordered, append-only history**, which is why `db:generate`
+      diffs against `drizzle/meta/` and emits a new numbered file rather than rewriting
+      `0000`. `schema.ts` describes the shape you want *now* and has no memory.
+- [x] What **upsert** means and why it makes the sync idempotent
+      — and note `sleeper_id` can be a conflict target *only* because it is `UNIQUE`:
+      `ON CONFLICT (col)` needs a unique index to conflict on, so without it the upsert is
+      a Postgres **error**, not a silent no-op. The uuid comes from Postgres's
+      `gen_random_uuid()` DEFAULT, not from Drizzle in JS.
+- [x] The difference between a **natural key** and a **surrogate key** (you'll have
       chosen one — defend it)
-- [ ] What a **NOT NULL** constraint buys you, and why most of `players` isn't one
-- [ ] Why an **index** on `position` might matter and when it wouldn't
-- [ ] The difference between a **type assertion** and **runtime validation**
-- [ ] Why `GET` is the right verb here, and what **idempotent** means in HTTP
-- [ ] What **middleware** is, and what `zValidator` is actually doing to the request
-- [ ] Roughly what SQL Drizzle generated for your `select` (read it out loud)
+      — the sharp form: natural vs. surrogate is **relative to the schema you are standing
+      in.** `sleeper_id` is natural to us and almost certainly a surrogate inside Sleeper's
+      own database. Same string, opposite classification.
+- [x] What a **NOT NULL** constraint buys you, and why three columns in `players` aren't
+      **⚠ CORRECTED 2026-09-02 — a null `years_exp` does NOT mean rookie.** It means
+      **Sleeper does not know**: 9 rows out of 4,038, which is a data gap, not a category.
+      **Rookie is `years_exp = 0`** (see decision 2's column table). Two columns can be
+      nullable for entirely different reasons — `team` null carries *domain meaning*
+      (3,044 free agents, slice 2's whole subject), `years_exp` null carries *absence of
+      data*. Reading the second as though it were the first would mislabel nine veterans as
+      rookies: no crash, no red test, quietly wrong cap math in whichever slice touches
+      `isRookie`. **The single most valuable thing the quiz found.**
+      What the constraint buys over a TypeScript type: it holds for **every write path that
+      will ever exist**, including a hand-typed `INSERT` and a slice-3 script not yet written.
+- [x] Why an **index** on `position` might matter and when it wouldn't
+      **⚠ PARTLY MISSED 2026-09-02 — the sort is the hidden cost.** Selectivity was right:
+      `RB` matches 928 of 4,038 (~23%), and Postgres will seq-scan rather than do 928
+      scattered heap fetches, where a `sleeper_id` lookup (1 row, 0.02%) uses its index
+      every time. What was missed is that `ORDER BY full_name, sleeper_id` **sorts all 928
+      matches and discards 908** to return 20 — `LIMIT` bounds the *response*, not the
+      *work*. An index on `position` does not help that; a composite on
+      `(position, full_name, sleeper_id)` satisfies filter *and* order in one structure,
+      letting Postgres stop after 20. Cost is paid on **writes** — every index is
+      maintained on every `INSERT`/`UPDATE`, and this sync rewrites all 4,038 rows per run.
+      **Verify with `EXPLAIN ANALYZE`**: `Seq Scan` vs `Index Scan`, and the `Sort` node's
+      real row count, are printed for you.
+- [x] The difference between a **type assertion** and **runtime validation**
+      — a cast **produces no code** (`as` is erased; there is none in the emitted JS), a
+      parse produces a **value**. The `null as unknown as Db` in `run.test.ts` is a
+      deliberate exception because the no-casts Norm governs *untrusted data at a boundary*
+      and nothing crosses one there: the claim is not "this is a `Db`" but "nothing ever
+      asks" — a claim about control flow, which is checkable by reading the function. It
+      also **fails loudly and locally** if it stops holding, which is what separates it
+      from a boundary cast that fails silently and months later.
+- [x] Why `GET` is the right verb here, and what **idempotent** means in HTTP
+      **⚠ CORRECTED 2026-09-02.** Idempotent = *N calls leave the same state as 1 call*,
+      NOT *the second call changes nothing* (`DELETE` is the clean illustration). So the
+      refreshed `synced_at` does **not** break the sync's idempotence — nothing accumulates.
+      `GET` is in fact stronger than idempotent, it is **safe**, and that is the real reason
+      to use it: declaring `GET` licenses the whole internet to prefetch, cache and retry
+      without asking. `POST /teams/:id/contracts` is not idempotent because **each request
+      creates another contract row** — two identical posts sign the player twice and charge
+      the cap twice. (Not because anything "updates the uuid"; `:id` is the team's, and it
+      does not change.) That makes a timed-out retry genuinely dangerous, which is what an
+      idempotency key exists to solve — deferred, but the reason the question is operational.
+- [x] What **middleware** is, and what `zValidator` is actually doing to the request
+      — its power is that it **can decline to call `next`**: on `?position=ZZ` the handler
+      is never entered, which is why that test passes against an **empty database**, and why
+      needing a seeded row there would prove validation had leaked into the handler. The
+      half most easily missed is what it does on *success*: it **replaces** the request data
+      with the schema's *output* (`c.req.valid("query")`), so `limit` reaches the handler as
+      a `number`. `.default(20)` is the proof it is a **parse, not a gate** — the validator
+      adds a field the client never sent, and a gate cannot invent data.
+- [x] Roughly what SQL Drizzle generated for your `select` (read it out loud)
+      — `SELECT <13 columns> FROM players WHERE position = $1 AND team = $2 ORDER BY
+      full_name, sleeper_id LIMIT $3`. Values are **bound parameters**, never interpolated
+      into the text, which is why injection is unreachable despite the text being assembled
+      at runtime. With no filters, `and()` returns `undefined`, `.where(undefined)` emits
+      **no clause at all**, and the statement loses its `WHERE` — the SQL *text* varying
+      with input, not just its parameters. Filters change **rows** (`WHERE` = selection),
+      never **columns** (`SELECT` = projection): all 13 come back regardless, which is
+      exactly why `serialize`'s explicit 11-field list has to exist.
+      **Verify any time with `.toSQL()`**, which returns `{ sql, params }` without executing.
 
 If any box is still unchecked when the tests are green, the slice isn't done. Ask.
 

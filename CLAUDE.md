@@ -46,27 +46,31 @@ assume competence everywhere else.
 
 ---
 
-## Current state (2026-08-27, end of session)
-**Vertical slices. Slice 0 (spec 002): steps 1–5 are CODE COMPLETE. The sync runs end to end
-against the real Sleeper API and is idempotent in production; the HTTP layer is written,
-tested, and lifecycle-verified. 40 tests green, `tsc` clean.**
+## Current state (2026-09-02, end of session)
+**SLICE 0 IS CLOSED.** All three requirements of spec 002's Definition of Done are met and
+demonstrated, all nine of its concepts boxes are ticked, and nothing is owed by that spec.
+**44 tests green, `tsc` clean.**
 
-**⟶ RESUME HERE:** the slice-0 demo — the one thing left, and deliberately left for Jacob
-to run himself:
+The demo that closed it, run by Jacob on 2026-09-02: `pnpm sync:players`, then `pnpm dev`,
+then `curl "http://localhost:3000/players?position=RB&team=DAL&limit=5"` — real Sleeper
+rows, out of our own database, over HTTP. Every layer had already been verified in
+isolation; the demo is the only thing that could show all four shapes running end to end in
+one process.
 
-```
-pnpm sync:players
-pnpm dev
-curl "http://localhost:3000/players?position=RB&team=DAL&limit=5"
-```
+**⟶ RESUME HERE: slice 1 — read the cap.** Introduce `leagues`, `teams`, `contracts`;
+`GET /teams/:id/cap` returns `{ capUsed, capTotal, capSpace, isCapLegal }`. Spec 001's pure
+core (`calcCapHit`, `calcCapUsed`) finally gets a caller. **Write the spec first** — slice 0
+front-loaded decision 8 before writing any HTTP code and no shape question reopened during
+implementation, which is the strongest process evidence this project has produced.
 
-Every layer is verified in isolation: `GET /players` against in-memory PGlite in the test
-suite, and against a real disk-backed database in a scripted start/curl/SIGINT/restart cycle
-(2026-08-27). What has **not** happened yet is the two together — 4,038 real Sleeper rows
-served over HTTP. That is the whole demo, and it closes the slice.
-
-**Also owed, both prose, both small:** record the `serialize` mutation in spec 002's test
-plan next to the other three, and close or re-park the named `fetchPlayerPool` gap.
+**Two things slice 1 inherits directly from slice 0:**
+- `contracts` foreign-keys to **`players.id`** (the surrogate uuid), never to `sleeper_id`.
+  That is what keeps Sleeper's identifiers stopped at the mirror table instead of
+  propagating into league history, and it is the reason the upsert's uuid-stability
+  assertion exists. Pair it with **`onDelete: RESTRICT`** (landmine 2 below).
+- Revisit the build order. Data-flow order (one layer per step) was chosen deliberately for
+  slice 0 and cost it a demo until step 5. The layers are familiar now, so slice 1 should
+  consider a thinner skeleton that is demoable earlier.
 
 **Two rules from decision 8 worth carrying past this slice:** *a validator checks the
 request; the database answers existence — never let a validator read the database* (slice
@@ -160,14 +164,14 @@ this league can never roster. It also forces the pipeline order: **filter, then 
    - ✅ **`scripts/dev.ts` + the `dev` npm script**, with graceful shutdown on `SIGINT` and
      `SIGTERM`. Verified 2026-08-27 by a scripted start → curl → SIGINT → **restart**, the
      restart being the run that used to hang.
-   - ⬜ **The `curl` demo against real synced data.** ← *here*
+   - ✅ **The `curl` demo against real synced data** — run 2026-09-02. Slice 0 closed.
 
 **✓ SETTLED (2026-07-22) — `mapSleeperPlayer` timestamp sourcing: inject.** `syncedAt` is a
 parameter, keeping the mapper pure (functional core; the clock is I/O and belongs to the
 shell). The sync script mints `new Date()` once per run and passes it for every row — one
 run = one timestamp, which also buys the stale-row seam (`WHERE synced_at < :runStart`) for
 free later. Full rationale + rejected alternatives in `specs/002-player-sync.md` decision 5.
-**Step 4 owes this decision its half of the bargain:** one `new Date()` per run, threaded.
+**Step 4 paid this decision's half of the bargain:** one `new Date()` per run, threaded.
 
 **✓ SETTLED (2026-08-11) — the zero-row policy: (A), zero is fatal, checked twice.**
 `syncPlayers` aborts if the payload has no entries *("Sleeper returned an empty pool" —
@@ -199,13 +203,48 @@ returns the *validated envelope* (`Promise<Record<string, unknown>>`) so `syncPl
 count entries for decision 6's first abort; values stay `unknown`, so trust still starts at
 the strict schema. Full rationale + cost in spec 002, decision 7.
 
-**⟶ NAMED GAP (open) — `fetchPlayerPool` has no test.** The cost of the line above: the
-function you replace is the function you do not test, so its URL, its `res.ok` check, and
-its envelope parse ship unexercised. Closing it needs its own small file swapping global
-`fetch` — the right tool at the right level. Two assertions owed, listed in spec 002's test
-plan. Not urgent: the real endpoint has now been hit successfully twice.
+**✓ NAMED GAP CLOSED (2026-09-02) — `src/sync/run.test.ts`.** The cost of the line above
+was that the function you replace is the function you do not test. Closing it also closed a
+wider gap found alongside it: `run.ts` was the only file in `src/` with no `.test.ts`
+sibling, so **decision 6's two aborts had never once executed.** Four tests, and the file is
+worth reading as the clearest statement of decision 7 in the codebase — **two `describe`
+blocks needing completely different machinery**, because `syncPlayers`' subject is *policy*
+(hand it a plain object, never mention `fetch`) and `fetchPlayerPool`'s is *the HTTP call*
+(swap the global, never mention the database). One file, two levels, one cut each.
+
+Three traps recorded there, all of which make a mutation lie if ignored:
+- Both abort messages end `"Nothing was written."`, so a regex over the shared half passes
+  for **either** abort — the one failure those tests exist to catch. Match a phrase unique
+  to each message.
+- The 500 stub must use a **real `Response`**, not an object literal: `ok` is *derived* from
+  `status`, so a literal encodes your belief about `fetch`'s shape rather than its shape.
+- The 500 stub's body must contain **no digits**. Node's JSON parse error *quotes its input*,
+  so a body containing `500` leaves the test green after deleting the `res.ok` check — the
+  `SyntaxError` message happens to match too.
 
 **Hard-won facts about this stack that will recur:**
+- **A null `years_exp` means "Sleeper does not know", NOT "rookie".** Rookie is
+  `years_exp = 0`. Only 9 rows of 4,038 are null — if null meant rookie there would be
+  hundreds every year. The general lesson, which matters at every mirror table: **two
+  columns can be nullable for entirely different reasons.** `team` null carries *domain
+  meaning* (3,044 free agents, slice 2's whole subject); `years_exp` null carries *absence
+  of data*. Confusing the second for the first mislabels nine veterans as rookies — no
+  crash, no red test, quietly wrong cap math wherever `isRookie` lands. Caught 2026-09-02.
+- **Validation at the boundary is a PARSE, not a gate.** `zValidator` does not inspect the
+  request and wave it through — it **replaces** the request data with the schema's *output*,
+  which the handler reads via `c.req.valid("query")`. The proof is `.default(20)`: the
+  validator hands the handler a field the client never sent, and a gate cannot invent data.
+  So `limit` arrives as a `number`, and nothing downstream ever sees raw input. Same shape
+  as the `.parse()` double-duty fact below.
+- **`LIMIT` bounds the response, not the work.** `ORDER BY full_name, sleeper_id LIMIT 20`
+  over a `position` filter makes Postgres sort **all 928** matching RBs and discard 908.
+  Indexing `position` does not help that; a composite on `(position, full_name, sleeper_id)`
+  satisfies filter *and* order in one structure so the scan can stop after 20 — which is why
+  **column order in a composite index matters.** Relatedly, an index is not automatically
+  used: `RB` matches ~23% of the table, and Postgres will seq-scan rather than do 928
+  scattered heap fetches, while a `sleeper_id` lookup (1 row, 0.02%) uses its index every
+  time. **Selectivity decides.** Read the real plan with `EXPLAIN ANALYZE`, and the real SQL
+  with Drizzle's `.toSQL()`, which returns `{ sql, params }` without executing.
 - **Drizzle wraps driver errors.** `err.message` is Drizzle's `Failed query: insert into
   ...`; the Postgres message and its SQLSTATE are on **`err.cause`**. So
   `.rejects.toThrow(/constraint_name/)` fails, and worse, a loose matcher can pass by
@@ -300,7 +339,7 @@ trap is over-structuring; tool-shopping is that trap in disguise.
 - `pnpm typecheck` — `tsc --noEmit`
 - `pnpm db:generate` — generate a Drizzle migration by diffing `schema.ts`
 - `pnpm sync:players` — pull the Sleeper player pool
-- (to be added in slice 0, step 5) `pnpm dev` — start the Hono server
+- `pnpm dev` — start the Hono server (graceful shutdown on `SIGINT`/`SIGTERM`)
 
 ---
 
@@ -348,10 +387,10 @@ Each slice is **narrow in scope, complete in depth**, and demoable with `curl`.
 If you can't demo it, it isn't a slice.
 
 - **Slice 0 — player sync (spec 002).** Sleeper → Zod → Drizzle → PGlite →
-  `GET /players`. Only the `players` table. Nothing else. ← *current*
+  `GET /players`. Only the `players` table. Nothing else. **✅ CLOSED 2026-09-02.**
 - **Slice 1 — read the cap.** Introduce `leagues`, `teams`, `contracts`.
   `GET /teams/:id/cap` → `{ capUsed, capTotal, capSpace, isCapLegal }`. Spec 001's
-  pure core finally gets a caller.
+  pure core finally gets a caller. ← *current* — **spec first.**
 - **Slice 2 — first mutation.** `POST /teams/:id/contracts` (sign a free agent at a
   bid). Reject with `422` if it breaks the cap. **The transaction boundary appears here.**
 - **Slice 3 — move a player.** `PATCH /contracts/:id` → IR / practice squad. Capacity
