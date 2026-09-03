@@ -1,35 +1,47 @@
-# Spec XXX — [Insert spec name]
+# Spec NNN - [title]
 
-**Status:**
-**Why:**
+**Status:** draft | in progress | done
+**Ticket:** #NN
+**Slice:** [milestone name]
 
----
+## Problem
 
-_these are to be used inline during the relevant portions of the spec_
-⟶ **YOU DECIDE (X) — [Insert relevant decision].**
-✓ **DECIDED:**
+What is wrong or missing, from the point of view of someone using the league.
+Two or three sentences.
 
-## R — Requirements / Definition of Done
+## Solution
 
-## E — Entities involved
+What will be true when this is done, in the same voice. Not an implementation
+plan.
 
-## A — Approach
+## Done when
 
-## O — Operations (the interface)
+- [ ] A concrete, checkable statement. Prefer one that can be demonstrated over
+      one that can only be inspected.
+- [ ] ...
 
-## N — Norms
+## Decisions
 
-## S — Safeguards / invariants
+Decisions made while writing or building this ticket, as Y-statements. If a
+decision here would make a future ticket wrong when unknown, it does not belong
+in this file - promote it to `docs/adr/` and link it instead.
 
-## Test plan — ✍️ YOU WRITE THESE
+- In the context of X, facing Y, we decided for Z and neglected W, to achieve V,
+  accepting that U.
 
-- [ ]
+## Out of scope
 
----
+What a reader might reasonably expect here and will not find, and where it goes
+instead.
 
-## Concepts you should be able to explain when this slice is green
+## Test plan
 
-- [ ]
+Enumerate the cases before writing either the tests or the code. Red first, then
+implement to green.
 
----
-*Deferred for this spec:*
+Cover non-trivial branching, the rules this ticket adds, and error-prone edges.
+Do not cover framework behaviour, and do not write change-detectors. Assert on
+an exact string or shape only where it IS the contract - and when you do, name
+that contract in the test's title.
+
+- [ ] ...

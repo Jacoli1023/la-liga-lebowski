@@ -20,7 +20,7 @@ import type { Db } from "../db/client.js";
  *
  * Sleeper asks that this be called at most once per day. That request is why
  * the sync is a script rather than a request path, and why the database is
- * persisted to disk (spec 002, decision 4) - a restart must not cost them
+ * persisted to disk - a restart must not cost them
  * another 14.6MB.
  */
 const SLEEPER_URL = "https://api.sleeper.app/v1/players/nfl";
@@ -55,26 +55,23 @@ export async function fetchPlayerPool(): Promise<Record<string, unknown>> {
   // The SECOND of two envelope parses, on purpose. mapSleeperPayload parses it
   // again with this same schema, because a pure function defends its own
   // boundary rather than trusting whoever called it. The cost is one shallow
-  // key walk (spec 002, decision 7).
+  // key walk.
   //
-  // It also earns its place here independently: syncPlayers counts these
-  // entries to tell "Sleeper sent nothing" apart from "we matched nothing"
-  // (decision 6), and counting keys on an unvalidated `unknown` would be
-  // exactly the `as`-cast this project forbids.
+  // It is also needed here in its own right: syncPlayers counts these entries
+  // to tell "Sleeper sent nothing" apart from "we matched nothing", and
+  // counting keys on an unvalidated `unknown` would be exactly the `as`-cast
+  // this project forbids.
   return sleeperPayloadSchema.parse(payload);
 }
 
 /**
  * What one sync run did.
  *
- * RETURNED rather than logged, for two reasons. Presentation belongs to the
- * entry point - a library function that prints is a library function you cannot
- * reuse quietly. And a test can assert on numbers; it cannot assert on console
- * output without capturing it.
- *
- * Contrast `upsertPlayers`, which deliberately returns void: its count is always
- * `rows.length`, which the caller already has. These two counts are different -
- * nothing outside this function ever saw the payload.
+ * Returned rather than logged. Presentation belongs to the entry point, and a
+ * test can assert on numbers but not on console output without capturing it.
+ * The two counts differ, and nothing outside this function ever saw the
+ * payload: `upsertPlayers` returns void because its count is always
+ * `rows.length`, which its caller already has.
  */
 export type SyncResult = {
   /** Entries in Sleeper's payload, before any filtering. ~12,200. */
@@ -88,20 +85,16 @@ export type SyncResult = {
  *
  *   fetchPool() -> count entries -> mapSleeperPayload -> count rows -> upsert
  *
- * `fetchPool` is a PARAMETER, not an import (spec 002, decision 7). That is the
- * slice's one honest test double, and it earns its place by provoking failures
- * the real API cannot be asked for: an empty pool, and a malformed running back.
- * Note what is NOT doubled - the database. In-memory PGlite is real Postgres,
+ * `fetchPool` and `syncedAt` are both parameters rather than imports. See
+ * docs/adr/0006-inject-the-fetch-seam.md and docs/adr/0005-inject-the-clock.md.
+ * Note what is not doubled: the database. In-memory PGlite is real Postgres,
  * injected the same way, so a constraint violation in a test is a real one.
  *
- * `syncedAt` is a PARAMETER too (decision 5). The clock is I/O and belongs to
- * the caller; one run mints one timestamp and every row written by that run
- * carries it.
- *
- * THROWS on any failure, and that is the designed behavior rather than an
- * oversight - see decision 3 (a bad row aborts) and decision 6 (zero rows
- * aborts, twice). Aborting is safe here ONLY because the upsert is idempotent:
- * the cost is a re-run, and there is no half-written state to repair.
+ * Throws on any failure, by design. A bad row aborts, and zero rows written
+ * aborts with one of two distinct messages depending on whether Sleeper sent
+ * nothing or our filter matched nothing. Aborting is safe here only because the
+ * upsert is idempotent: the cost is a re-run, and there is no half-written
+ * state to repair.
  */
 export async function syncPlayers(
   db: Db,
@@ -111,7 +104,8 @@ export async function syncPlayers(
   const pool = await fetchPool();
   const entryCount = Object.keys(pool).length;
 
-  // ABORT 1 of 2 (decision 6). THEIR problem: an empty, failed, or wrong-URL
+  // ABORT 1 of 2 (docs/adr/0010-zero-rows-written-is-fatal.md).
+  // THEIR problem: an empty, failed, or wrong-URL
   // response. The remedy is to re-run later. No code changes.
   if (entryCount === 0) {
     throw new Error(
@@ -122,7 +116,7 @@ export async function syncPlayers(
 
   const rows = mapSleeperPayload(pool, syncedAt);
 
-  // ABORT 2 of 2 (decision 6). OUR problem: entries arrived and every single one
+  // ABORT 2 of 2 (same ADR). OUR problem: entries arrived and every single one
   // was skipped, which means the position filter is stale - Sleeper renamed the
   // positions, or changed the type of the field.
   //

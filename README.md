@@ -156,7 +156,7 @@ rollover cascade, trades, blind-bid periods, scoring, any UI, real Postgres, aut
 The player pool comes from the **Sleeper API**, mirrored into a local table by an idempotent
 sync. An earlier draft of this README planned static seed data; mirroring a real third-party
 feed turned out to be the more instructive version, and the anti-corruption boundary it
-forced is now one of the load-bearing ideas in the codebase.
+forced is now one of the ideas the rest of the codebase is built around.
 
 ## How it's built
 

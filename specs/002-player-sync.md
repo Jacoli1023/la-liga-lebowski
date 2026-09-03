@@ -1,5 +1,22 @@
 # Spec 002 — Player Sync (The Walking Skeleton)
 
+> **Historical document.** This spec predates the current workflow and is kept
+> as the record of how slice 0 was built. Its decisions have moved:
+>
+> - Cross-slice decisions are now ADRs. Decision 1 (the surrogate key) is
+>   `docs/adr/0004-sleeper-identifiers-stop-at-the-mirror-table.md`; decision 5
+>   (the injected clock) is `docs/adr/0005-inject-the-clock.md`; decision 7 (the
+>   fetch seam) is `docs/adr/0006-inject-the-fetch-seam.md`. Cite the ADR, never
+>   "decision 5" - a slug says what the decision was at the point of reference.
+> - Its remaining decisions stayed in-slice and are historical only.
+> - Facts measured against the live payload are in `docs/notes/measured.md`.
+>
+> New specs use `specs/TEMPLATE.md`: ticket-scoped, one Decisions section at the
+> end, no REASONS canvas. This spec covered five layers over six weeks and
+> accumulated nine cross-referencing decisions, which is the specific problem
+> the thinner template exists to prevent.
+
+
 **Status:** **COMPLETE (2026-09-02).** All three requirements in the Definition of Done
 are met and demonstrated, and every box in the concepts checklist at the foot of this file
 is ticked. 44 tests green, `tsc` clean.
@@ -631,7 +648,7 @@ syntax. Reaching those rows requires a sentinel (`?team=none`) or a separate par
   not a 500).
 - No `onDelete: Cascade` from `players` to anything, ever. (See CLAUDE.md landmines.)
 
-## Test plan — ✍️ YOU WRITE THESE
+## Test plan
 The mapper is the anti-corruption boundary, which makes it architecture-critical. That
 makes it **your rep.** Claude may hand you a saved Sleeper fixture; you write the
 assertions.
@@ -858,6 +875,31 @@ correcting are annotated below, because the correction is the part worth keeping
       **Verify any time with `.toSQL()`**, which returns `{ sql, params }` without executing.
 
 If any box is still unchecked when the tests are green, the slice isn't done. Ask.
+
+---
+
+## Deferred decisions
+
+Questions this spec settled one way and left open for revisiting. They were
+found parked as loose comments inside a docblock in `src/http/players.ts` on
+2026-09-03 and moved here, where a future spec can pick them up. Not issues
+yet - a spec has to want them first.
+
+**`?team=dal` is rejected rather than normalized.** The current shape check
+requires uppercase, so a lowercase abbreviation returns `400`. The argument for
+rejecting was that normalizing silently repairs a query the client got wrong.
+The argument for accepting is that case is not a meaningful distinction in a
+team abbreviation, and every other HTTP interface a client has used is
+case-insensitive here. Whoever reopens this should decide it for query
+parameters generally, not just for `?team=`.
+
+**`limit` has a ceiling of 100.** The argument for a ceiling was protecting the
+server from a client asking for everything. The argument against is that the
+whole mirror table is only ~4,038 rows and a client that wants all of them has
+no other way to ask. Note that removing the ceiling changes what
+`docs/notes/measured.md` records about `LIMIT` bounding the response rather than
+the work: an unbounded `?limit=` over a `position` filter would sort and return
+all 928 matching rows.
 
 ---
 *Deferred for this spec: leagues, teams, contracts, the cap, any mutation, real

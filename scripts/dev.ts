@@ -7,7 +7,7 @@ import { createPlayersApp } from "../src/http/players.js";
  * scripts/sync-players.ts: pick the paths, start the thing, arrange for a
  * clean stop. No routes, no queries, no rules.
  *
- * Reads the SAME database the sync writes (spec 002, decision 4), so the
+ * Reads the SAME database the sync writes, so the
  * workflow is `pnpm sync:players` once, then `pnpm dev` to serve it.
  */
 
@@ -29,40 +29,22 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 });
 
 /**
- * TODO(human): graceful shutdown.
+ * Graceful shutdown, which is not optional here.
  *
- * WHY THIS IS NOT OPTIONAL: PGlite persists a real Postgres data directory and
- * MUST be closed (see the long note in scripts/sync-players.ts). That script
- * gets it for free from a `finally`, because it finishes. This one never does.
+ * PGlite must be closed or the next run hangs indefinitely (see
+ * docs/notes/measured.md). sync-players.ts gets that for free from a `finally`
+ * because it finishes; a server never does. SIGINT's default action terminates
+ * the process on the spot - nothing is thrown, so nothing unwinds and no
+ * `finally` runs.
  *
- * Ctrl+C sends SIGINT, whose DEFAULT action is to terminate the process on the
- * spot. Nothing is thrown, so nothing unwinds, so no `finally` runs and the
- * database is never closed. Measured 2026-08-12 on the sync: the next run then
- * hangs forever. The run that breaks is not the run that misbehaved.
+ * Registering a handler REPLACES that default, so this code now owns exiting.
+ * It closes the server first, so no request arrives mid-teardown, then the
+ * database, and calls no process.exit(): with both handles released the event
+ * loop is empty and Node exits with 0 on its own.
  *
- * Write an async `shutdown(signal: string)` that:
- *   1. guards against running twice - a second Ctrl+C while the first is still
- *      closing should not start a second shutdown
- *   2. `server.close()` FIRST, so no new request can arrive mid-teardown
- *   3. `await db.$client.close()` second
- *   4. does NOT call process.exit(). With both handles released the event loop
- *      is empty and Node exits on its own with code 0 - and process.exit()
- *      would truncate any buffered output, which is the exact trap
- *      sync-players.ts documents beside its `process.exitCode = 1`.
- *
- * Then register it for BOTH signals:
- *   SIGINT  - Ctrl+C from a terminal
- *   SIGTERM - what `kill`, a process manager, or `docker stop` sends. Not
- *             hypothetical: it is how this would be stopped anywhere but here.
- *
- * Note that `process.on` takes a sync callback, so an async shutdown needs
- * `() => { void shutdown("SIGINT"); }` rather than being passed directly.
- *
- * IF CTRL+C EVER SEEMS TO HANG: registering a handler REPLACES the default
- * kill, so the process now stops only if your handler makes it stop. The usual
- * culprit is a browser holding a keep-alive connection open, which
- * `server.close()` politely waits for. `server.closeAllConnections()` is the
- * escape hatch. Reach for it only if you actually see the hang.
+ * If Ctrl+C ever seems to hang, the usual cause is a client holding a
+ * keep-alive connection that `server.close()` politely waits for.
+ * `server.closeAllConnections()` is the escape hatch.
  */
 let shuttingDown = false;
 

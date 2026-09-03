@@ -8,17 +8,17 @@ import * as schema from "./schema.js";
  * Opens a PGlite database, brings it up to date with the migrations in
  * ./drizzle, and returns a typed Drizzle client.
  *
- * One factory, two callers (spec 002, decision 4):
- *   - createDb("./.data/players")  -> persisted to disk  (sync script, dev server)
- *   - createDb()                   -> in-memory, fresh    (tests)
+ * One factory, two callers:
+ *   - createDb("./.data/players")  -> persisted to disk (sync script, dev server)
+ *   - createDb()                   -> in-memory, fresh  (tests)
  *
- * migrationsFolder is resolved from the current working directory. That is the
+ * migrationsFolder resolves from the current working directory, which is the
  * project root for every entry point we have: npm scripts and vitest both run
  * from there.
  *
- * `path`, when given, is a FILESYSTEM path - the only kind either caller uses.
- * (PGlite also accepts URI forms like `memory://`; we do not, and mkdir below
- * assumes we do not.)
+ * `path`, when given, is a filesystem path - the only kind either caller uses.
+ * PGlite also accepts URI forms like `memory://`; we do not, and the mkdir
+ * below assumes we do not.
  */
 export async function createDb(path?: string) {
   // PGlite creates its own data directory, but with a NON-recursive mkdir - so
@@ -45,8 +45,6 @@ export async function createDb(path?: string) {
 }
 
 /**
- * A Drizzle client as createDb hands it back.
- *
  * Exported so the repositories, the sync, and the entry points all name the
  * same type instead of each re-deriving it. Reach it as `db.$client` to get the
  * underlying PGlite instance - which is how an entry point calls `.close()`.

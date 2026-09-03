@@ -63,8 +63,8 @@ Next chunk (deferred):
 - Every `RosterStatus` value must be handled — a new status must not silently
   contribute 0 and slip through unnoticed.
 
-## Test plan — ✍️ YOU WRITE THESE
-This is architecture-critical, so the tests are your rep. **Enumerate the cases
+## Test plan
+**Enumerate the cases
 yourself and write the assertions with exact expected cent values.** Red first, then
 implement to green.
 
