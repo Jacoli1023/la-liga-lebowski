@@ -1,12 +1,14 @@
-# Dependencies — regenerable any time from package.json + pnpm-lock.yaml
+# Dependencies
 node_modules/
 
-# Build output (none yet; here for when we add a build step)
+# Build output
 dist/
 
 # Test coverage reports
 coverage/
 
-# The local PGlite database (spec 002, decision 4). Regenerable: pnpm sync:players.
-# Derived data, never source. Tests use an in-memory PGlite and never touch this.
+# The local PGlite database
 .data/
+
+# Vim swap files
+*.swp

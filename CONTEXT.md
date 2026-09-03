@@ -23,6 +23,17 @@ The distinction matters in one specific way: a Player can be replaced
 wholesale by the next sync, and Contracts must not notice. See
 ADR-0004.
 
+**Live** - a Contract that still binds a Team to a Player. Liveness is a
+separate question from RosterStatus, not a value of it: an Injured Reserve or
+Practice Squad Contract is live, and a Contract that has stopped being live
+keeps the RosterStatus it had, because the rules charge a dropped Player
+differently depending on the bucket he was dropped from. See ADR-0011.
+
+**Dropped** - a Contract ended early by the Team that held it. A dropped
+Contract is not live, still charges the current Season, and may produce Dead
+money in the Season after. Dropping is one way a Contract stops being live;
+expiring at rollover is the other, and the two have different consequences.
+
 ## Teams and rosters
 
 **Team** - one league member's franchise. Has a cap and a set of Contracts.
